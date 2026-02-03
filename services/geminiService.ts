@@ -68,10 +68,6 @@ export async function generateTourPlan(
   extraContent?: string
 ): Promise<TourPlan> {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    console.error("Critical: API_KEY is missing from environment variables.");
-  }
-  
   const ai = new GoogleGenAI({ apiKey: apiKey as string });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
@@ -81,7 +77,8 @@ export async function generateTourPlan(
     類型: ${type === TourType.DOMESTIC ? '國內團體旅遊' : '國外團體旅遊'}
     ${extraContent ? `要求細節: ${extraContent}` : ''}
     
-    請確保 JSON 內容完整。在 days 陣列中，請為每個景點隨機分配 1~3 的 imageCount，並指定 imagePosition。
+    請確保內容專業且吸引人。在 days 陣列中，請為每個景點隨機分配 1~3 的 imageCount，並指定 imagePosition。
+    描述部分 (description) 請寫得具備視覺感，以便後續生成對應景點的圖片。
   `;
 
   try {
@@ -112,19 +109,28 @@ export async function generateTourPlan(
   }
 }
 
-export async function generateImageForDay(prompt: string): Promise<string> {
+/**
+ * 根據當天行程細節生成對應圖片
+ * @param context 包含當天標題、描述、以及旅遊類型的組合文字
+ */
+export async function generateImageForDay(context: string): Promise<string> {
   const apiKey = process.env.API_KEY;
   const ai = new GoogleGenAI({ apiKey: apiKey as string });
+  
+  // 強化提示詞：強調細節與真實景觀感
+  const refinedPrompt = `A high-end travel marketing photograph showing: ${context}. 
+  Cinematic lighting, professional 4k photography, clear weather, no people or text, high aesthetic quality, capturing the specific vibe of the location described.`;
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
-        parts: [{ 
-          text: `Professional travel photography, ${prompt}, landscape, 4k, vivid.` 
-        }]
+        parts: [{ text: refinedPrompt }]
       },
       config: {
-        imageConfig: { aspectRatio: "16:9" }
+        imageConfig: {
+          aspectRatio: "16:9"
+        }
       }
     });
 
@@ -133,8 +139,9 @@ export async function generateImageForDay(prompt: string): Promise<string> {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image returned");
+    throw new Error("No image data");
   } catch (error) {
+    console.warn("AI Image gen failed, using fallback:", error);
     return `https://picsum.photos/seed/${Math.random()}/1200/675`;
   }
 }
