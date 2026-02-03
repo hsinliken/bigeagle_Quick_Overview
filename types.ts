@@ -33,6 +33,7 @@ export interface DayPlan {
   imageUrl: string; // Used as seed/keyword
   imagePosition: ImagePosition;
   imageCount: number;
+  customImages?: string[]; // Array of Base64 strings for uploaded images
 }
 
 export interface TourPlan {
