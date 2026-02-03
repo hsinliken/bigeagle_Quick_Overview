@@ -3,8 +3,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { TourType, TourPlan } from "../types";
 import { DOMESTIC_SYSTEM_PROMPT, INTERNATIONAL_SYSTEM_PROMPT } from "../constants";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-
 const tourPlanSchema = {
   type: Type.OBJECT,
   properties: {
@@ -69,6 +67,9 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
+  // 遵循規範：每次調用時重新獲取金鑰，避免 Top-level 載入時的 race condition
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
@@ -79,8 +80,9 @@ export async function generateTourPlan(
     請確保生成的行程細節專業且誘人。對於 imagePosition，請預設為 'right'。對於 imageCount，請預設為 1。
   `;
 
+  // 使用 gemini-3-flash-preview 以確保更快的響應速度與更高的環境相容性
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-flash-preview',
     contents: prompt,
     config: {
       systemInstruction,
@@ -90,10 +92,11 @@ export async function generateTourPlan(
   });
 
   const text = response.text;
-  if (!text) throw new Error("AI 無法生成行程，請再試一次。");
+  if (!text) throw new Error("AI 無法生成行程內容，請檢查 API Key 是否有效。");
   
   const data = JSON.parse(text);
-  // Ensure defaults if AI misses them
+  
+  // 確保 AI 如果遺漏欄位，我們有預設值
   data.days = data.days.map((d: any) => ({
     ...d,
     imagePosition: d.imagePosition || 'right',
