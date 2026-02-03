@@ -67,17 +67,21 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // 每次調用都重新實例化 GoogleGenAI，確保 API_KEY 正確注入
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.error("Critical: API_KEY is missing from environment variables.");
+  }
+  
+  const ai = new GoogleGenAI({ apiKey: apiKey as string });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
     請根據以下資訊產出行程：
     商品名稱: ${productName}
     類型: ${type === TourType.DOMESTIC ? '國內團體旅遊' : '國外團體旅遊'}
-    ${extraContent ? `額外要求: ${extraContent}` : ''}
+    ${extraContent ? `要求細節: ${extraContent}` : ''}
     
-    請確保內容專業且吸引人。在 days 陣列中，請為每個景點隨機分配 1~3 的 imageCount，並指定 imagePosition。
+    請確保 JSON 內容完整。在 days 陣列中，請為每個景點隨機分配 1~3 的 imageCount，並指定 imagePosition。
   `;
 
   try {
@@ -92,7 +96,7 @@ export async function generateTourPlan(
     });
 
     const text = response.text;
-    if (!text) throw new Error("AI 未能產出內容。");
+    if (!text) throw new Error("API 回傳內容為空。");
     
     const result = JSON.parse(text);
     result.days = result.days.map((d: any) => ({
@@ -103,25 +107,24 @@ export async function generateTourPlan(
     
     return result as TourPlan;
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
+    console.error("Gemini Generation Error:", error);
     throw error;
   }
 }
 
 export async function generateImageForDay(prompt: string): Promise<string> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const apiKey = process.env.API_KEY;
+  const ai = new GoogleGenAI({ apiKey: apiKey as string });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [{ 
-          text: `A professional 4K travel photograph of ${prompt}. Epic landscape, vivid cinematic colors, high detail, no text.` 
+          text: `Professional travel photography, ${prompt}, landscape, 4k, vivid.` 
         }]
       },
       config: {
-        imageConfig: {
-          aspectRatio: "16:9"
-        }
+        imageConfig: { aspectRatio: "16:9" }
       }
     });
 
@@ -130,10 +133,8 @@ export async function generateImageForDay(prompt: string): Promise<string> {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image data in response");
+    throw new Error("No image returned");
   } catch (error) {
-    console.error("Image Gen Error:", error);
-    // 備援：如果 AI 生成失敗，使用 Picsum
-    return `https://picsum.photos/seed/${encodeURIComponent(prompt.slice(-5))}/1200/675`;
+    return `https://picsum.photos/seed/${Math.random()}/1200/675`;
   }
 }
