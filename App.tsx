@@ -158,7 +158,7 @@ const App: React.FC = () => {
                 <span>⚠️</span> 偵測不到金鑰選取工具
               </p>
               <p className="text-amber-700 text-sm leading-relaxed">
-                如果您是在 Vercel 上查看，請前往 <b>Settings > Environment Variables</b>，新增一個 Key 為 <b>API_KEY</b> 的環境變數，然後重新部署。
+                如果您是在 Vercel 上查看，請前往 <b>Settings &gt; Environment Variables</b>，新增一個 Key 為 <b>API_KEY</b> 的環境變數，然後重新部署。
               </p>
             </div>
           )}
