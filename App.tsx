@@ -4,14 +4,13 @@ import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types
 import { generateTourPlan } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
 
-// 宣告 window.aistudio 類型，使用 AIStudio 名稱以符合環境預期並避免衝突
+// 宣告 window.aistudio 類型，確保與平台環境完全相容
 declare global {
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
   interface Window {
-    // FIX: Make aistudio optional to match existing environment definitions and fix modifier mismatch error
     aistudio?: AIStudio;
   }
 }
@@ -30,15 +29,17 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
 
-  // 檢查 API Key 狀態
+  // 初始化檢查金鑰狀態
   useEffect(() => {
     const checkKey = async () => {
-      // 如果 process.env.API_KEY 存在則視為有金鑰
-      if (process.env.API_KEY) {
+      // 1. 優先檢查環境變數
+      const envKey = process.env.API_KEY;
+      if (envKey && envKey !== 'undefined' && envKey !== '') {
         setHasApiKey(true);
         return;
       }
-      // 否則檢查平台是否已選取金鑰
+      
+      // 2. 檢查是否有透過 aistudio 選取過金鑰
       if (window.aistudio) {
         try {
           const selected = await window.aistudio.hasSelectedApiKey();
@@ -53,21 +54,25 @@ const App: React.FC = () => {
     checkKey();
   }, []);
 
-  // 處理金鑰選取，遵循規範：點擊後立即假設成功以避免競態條件
   const handleSelectKey = async () => {
+    setError(null);
     if (window.aistudio) {
       try {
         await window.aistudio.openSelectKey();
-        setHasApiKey(true); // 遵循規範：假設選取成功，避免 race condition
+        // 遵循規範：點擊後立即假設成功並嘗試進入應用
+        setHasApiKey(true);
       } catch (e) {
-        console.error("Failed to open key selector", e);
+        console.error("無法開啟金鑰選取器", e);
+        setError("無法開啟金鑰選取器，請檢查瀏覽器是否封鎖了彈出視窗。");
       }
+    } else {
+      setError("偵測不到金鑰選取對話框。請確認您是在專屬預覽環境中開啟，或已在 Vercel 後台設定 API_KEY 環境變數。");
     }
   };
 
   const handleGenerate = async () => {
     if (!productName.trim()) {
-      setError('請輸入商品名稱');
+      setError('請輸入旅遊商品名稱');
       return;
     }
 
@@ -78,12 +83,11 @@ const App: React.FC = () => {
       setGeneratedPlan(plan);
       setIsEditing(true); 
     } catch (err: any) {
-      // 處理實體未找到或金鑰無效的特殊錯誤，遵循規範：重置金鑰選取狀態
-      if (err.message?.includes("Requested entity was not found") || err.message?.includes("API key")) {
+      if (err.message?.includes("API key") || err.message?.includes("not found")) {
         setHasApiKey(false);
-        setError('API 金鑰效期已過或未設定，請重新選取。');
+        setError('API 金鑰效期已過或環境變數讀取失敗，請重新選取金鑰。');
       } else {
-        setError(err.message || '生成失敗，請檢查 API Key 或網路狀況。');
+        setError(err.message || '行程生成失敗，請稍後再試。');
       }
       console.error(err);
     } finally {
@@ -106,9 +110,7 @@ const App: React.FC = () => {
     setUploadedFileName(null);
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => window.print();
 
   const updateDayField = (index: number, field: keyof DayPlan, value: any) => {
     if (!generatedPlan) return;
@@ -126,44 +128,52 @@ const App: React.FC = () => {
     setGeneratedPlan({ ...generatedPlan, days: newDays });
   };
 
-  // 如果沒有金鑰，顯示引導畫面
+  // 渲染金鑰選取畫面
   if (!hasApiKey && !generatedPlan) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
-        <div className="bg-white p-12 rounded-[2.5rem] shadow-2xl max-w-md border border-slate-100">
+        <div className="bg-white p-10 md:p-12 rounded-[2.5rem] shadow-2xl max-w-md border border-slate-100 relative">
           <div className="text-6xl mb-6">🔑</div>
-          <h2 className="text-3xl font-black text-slate-800 mb-4">設定您的 API 金鑰</h2>
+          <h2 className="text-3xl font-black text-slate-800 mb-4 tracking-tight">設定您的 API 金鑰</h2>
           <p className="text-slate-500 mb-8 leading-relaxed">
-            為了安全調用 AI 服務，您需要先連結您的 API 金鑰。請點擊下方按鈕進行選取。<br/>
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-blue-500 underline text-sm hover:text-blue-600">關於計費說明</a>
+            您正在使用 Gemini 3 Pro 高階企劃系統。請點擊下方按鈕以連結您的有效 API 金鑰。<br/>
+            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-blue-500 underline text-sm hover:text-blue-600">關於計費說明 (ai.google.dev)</a>
           </p>
+          
           <button 
             onClick={handleSelectKey}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-xl hover:bg-blue-700 transition-all transform hover:scale-105 active:scale-95"
+            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-xl hover:bg-blue-700 transition-all transform hover:scale-105 active:scale-95 mb-4"
           >
             立即選取金鑰
           </button>
+
+          {error && (
+            <div className="mt-4 p-4 bg-red-50 text-red-600 text-sm font-bold rounded-xl border border-red-100 animate-pulse">
+              ⚠️ {error}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
+  // 編輯模式
   if (generatedPlan && isEditing) {
     return (
-      <div className="min-h-screen bg-slate-50 py-12 px-4 no-print">
+      <div className="min-h-screen bg-slate-50 py-12 px-4 no-print font-sans">
         <div className="max-w-5xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
-              <h2 className="text-3xl font-black text-slate-800">🛠️ 行程內容確認與調整</h2>
-              <p className="text-slate-500 mt-1">請在出版前調整您的文字內容與版面配置</p>
+              <h2 className="text-3xl font-black text-slate-800 tracking-tight">🛠️ 行程細節微調</h2>
+              <p className="text-slate-500 mt-1">AI 已生成初稿，您可以根據需求修改文字或變更圖片配置</p>
             </div>
             <div className="flex gap-4">
-              <button onClick={reset} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition-all">捨棄</button>
+              <button onClick={reset} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition-all">重新開始</button>
               <button 
                 onClick={() => setIsEditing(false)} 
                 className="px-8 py-3 bg-blue-600 text-white rounded-xl font-black shadow-xl hover:bg-blue-700 transition-all transform hover:scale-105"
               >
-                確認並生成預覽 🚀
+                生成精美預覽 🚀
               </button>
             </div>
           </div>
@@ -172,7 +182,7 @@ const App: React.FC = () => {
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div>
-                   <label className="block text-xs font-black text-slate-400 uppercase mb-2">商品標題</label>
+                   <label className="block text-xs font-black text-slate-400 uppercase mb-2">商品主標題</label>
                    <input 
                      className="w-full p-3 rounded-lg border border-slate-200 font-bold text-lg focus:border-blue-500 outline-none transition-all" 
                      value={generatedPlan.mainTitle}
@@ -180,7 +190,7 @@ const App: React.FC = () => {
                    />
                  </div>
                  <div>
-                   <label className="block text-xs font-black text-slate-400 uppercase mb-2">行銷副標</label>
+                   <label className="block text-xs font-black text-slate-400 uppercase mb-2">行銷吸引語</label>
                    <input 
                      className="w-full p-3 rounded-lg border border-slate-200 italic focus:border-blue-500 outline-none transition-all" 
                      value={generatedPlan.marketingSubtitle}
@@ -209,7 +219,7 @@ const App: React.FC = () => {
                     />
                     
                     <div className="space-y-3">
-                       <label className="text-xs font-black text-slate-400 uppercase tracking-widest">時間軸規劃</label>
+                       <label className="text-xs font-black text-slate-400 uppercase tracking-widest">行程時間軸</label>
                        {day.timeline.map((time, tIdx) => (
                          <div key={tIdx} className="flex gap-3">
                             <input className="w-28 p-2 border rounded-lg text-sm font-mono bg-slate-50" value={time.time} onChange={e => updateTimeline(idx, tIdx, 'time', e.target.value)} />
@@ -222,7 +232,7 @@ const App: React.FC = () => {
                   <div className="md:w-80 bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-6">
                     <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
                       <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                      版面配置設定
+                      版面設定
                     </h4>
                     
                     <div className="space-y-3">
@@ -241,27 +251,22 @@ const App: React.FC = () => {
                     </div>
 
                     <div className="space-y-3">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">圖片數量 ({day.imageCount} 張)</label>
-                      <div className="flex items-center gap-4">
-                        <input 
-                          type="range" min="1" max="3" step="1"
-                          className="flex-1 accent-blue-600 h-2 bg-slate-300 rounded-lg cursor-pointer"
-                          value={day.imageCount}
-                          onChange={e => updateDayField(idx, 'imageCount', parseInt(e.target.value, 10))}
-                        />
-                        <span className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-black text-xs shadow-md">
-                          {day.imageCount}
-                        </span>
-                      </div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">圖片數量 ({day.imageCount})</label>
+                      <input 
+                        type="range" min="1" max="3" step="1"
+                        className="w-full accent-blue-600 h-2 bg-slate-300 rounded-lg cursor-pointer"
+                        value={day.imageCount}
+                        onChange={e => updateDayField(idx, 'imageCount', parseInt(e.target.value, 10))}
+                      />
                     </div>
 
                     <div className="space-y-3">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">圖片搜尋關鍵字</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">圖片主題關鍵字</label>
                       <input 
                         className="w-full p-3 text-sm border rounded-xl bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" 
                         value={day.imageUrl}
                         onChange={e => updateDayField(idx, 'imageUrl', e.target.value)}
-                        placeholder="例如：阿里山, 櫻花"
+                        placeholder="景點關鍵字"
                       />
                     </div>
                   </div>
@@ -274,24 +279,25 @@ const App: React.FC = () => {
     );
   }
 
+  // 主輸入畫面
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center py-12 px-4">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center py-12 px-4 font-sans">
       <div className="w-full max-w-4xl no-print">
         <div className="text-center mb-12">
-          <div className="inline-block bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold mb-4 tracking-widest uppercase">
+          <div className="inline-block bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold mb-4 tracking-widest uppercase shadow-lg shadow-blue-200">
             Tour Planner Studio 2.5
           </div>
           <h1 className="text-5xl font-black text-slate-900 mb-4 tracking-tight">大鷹-行程簡表AI小助手</h1>
-          <p className="text-lg text-slate-500 font-medium">智能生成、深度客製、專業排版，讓行程規劃事半功倍。</p>
+          <p className="text-lg text-slate-500 font-medium">智能生成行程規劃，讓專業與美感並存。</p>
         </div>
 
-        <div className="bg-white rounded-[2rem] shadow-2xl p-10 mb-8 border border-slate-100 relative overflow-hidden">
+        <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 mb-8 border border-slate-100 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 -mr-16 -mt-16 rounded-full opacity-50"></div>
           
           <div className="flex flex-col md:flex-row gap-10 relative z-10">
             <div className="flex-1 space-y-8">
               <div>
-                <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">企劃商品類型</label>
+                <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">企劃類型</label>
                 <div className="flex bg-slate-100 p-1.5 rounded-2xl">
                   <button
                     onClick={() => setTourType(TourType.DOMESTIC)}
@@ -313,11 +319,11 @@ const App: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">內容輸入方式</label>
+                <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">輸入模式</label>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { id: InputMethod.AUTO, label: 'AI 全自動', icon: '🤖' },
-                    { id: InputMethod.TEXT, label: '手寫補充', icon: '📝' },
+                    { id: InputMethod.AUTO, label: '全自動', icon: '🤖' },
+                    { id: InputMethod.TEXT, label: '補充資料', icon: '📝' },
                     { id: InputMethod.FILE, label: '文件上傳', icon: '📁' },
                   ].map((method) => (
                     <button
@@ -340,11 +346,11 @@ const App: React.FC = () => {
             <div className="flex-[1.5] space-y-8">
               <div>
                 <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">
-                  旅遊商品完整名稱 <span className="text-red-500">*</span>
+                  旅遊商品名稱 <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder={tourType === TourType.DOMESTIC ? "例如：阿里山絕美日出、奮起湖老街豐富三日" : "例如：德國瑞士阿爾卑斯峰、萊茵河遊船深度十日遊"}
+                  placeholder={tourType === TourType.DOMESTIC ? "例如：阿里山絕美日出、奮起湖老街三日" : "例如：德國瑞士阿爾卑斯萊茵河遊船十日"}
                   className="w-full px-6 py-4 rounded-2xl border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-bold text-lg"
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
@@ -353,7 +359,6 @@ const App: React.FC = () => {
 
               {inputMethod === InputMethod.FILE ? (
                 <div>
-                   <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">文件上傳支援</label>
                    <input 
                       type="file" 
                       ref={fileInputRef} 
@@ -369,22 +374,19 @@ const App: React.FC = () => {
                        <div className="flex flex-col items-center">
                          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-3xl mb-4">📄</div>
                          <p className="font-black text-emerald-700">{uploadedFileName}</p>
-                         <p className="text-slate-400 text-xs mt-2">點擊以更換文件</p>
                        </div>
                      ) : (
                        <>
                          <div className="text-4xl mb-4 opacity-50 group-hover:scale-110 transition-transform">📤</div>
-                         <p className="font-black text-slate-500 mb-1">點擊此處上傳 Word / PDF / Excel</p>
-                         <p className="text-slate-400 text-xs">AI 將自動讀取文件內容轉化為企劃草案</p>
+                         <p className="font-black text-slate-500 mb-1">上傳 Word / PDF / Excel</p>
                        </>
                      )}
                    </div>
                 </div>
               ) : inputMethod === InputMethod.TEXT ? (
                 <div>
-                  <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">補充參考資料或大綱</label>
                   <textarea
-                    placeholder="請在此輸入您已有的粗略行程大綱或景點需求..."
+                    placeholder="輸入行程大綱或特殊景點需求..."
                     className="w-full h-40 px-6 py-4 rounded-2xl border border-slate-200 focus:ring-4 focus:ring-blue-100 outline-none resize-none transition-all font-medium text-slate-600"
                     value={extraContent}
                     onChange={(e) => setExtraContent(e.target.value)}
@@ -395,33 +397,20 @@ const App: React.FC = () => {
               <button
                 onClick={handleGenerate}
                 disabled={isLoading}
-                className={`w-full py-5 rounded-2xl text-white font-black text-xl transition-all shadow-2xl relative overflow-hidden group ${
+                className={`w-full py-5 rounded-2xl text-white font-black text-xl transition-all shadow-xl ${
                   isLoading 
                     ? 'bg-slate-400 cursor-not-allowed' 
-                    : 'bg-blue-600 hover:bg-blue-700 active:transform active:scale-95'
+                    : 'bg-blue-600 hover:bg-blue-700 active:transform active:scale-95 shadow-blue-200'
                 }`}
               >
-                {isLoading ? (
-                  <span className="flex items-center justify-center">
-                    <svg className="animate-spin -ml-1 mr-3 h-6 w-6 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    大數據核心運算中...
-                  </span>
-                ) : (
-                  <>
-                    <span className="relative z-10">開始生成企劃草案</span>
-                    <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
-                  </>
-                )}
+                {isLoading ? '核心運算中，請稍候...' : '開始生成企劃草案'}
               </button>
             </div>
           </div>
         </div>
 
         {error && (
-          <div className="bg-red-50 border-l-8 border-red-500 p-6 rounded-2xl mb-8 flex items-center shadow-lg transition-all">
+          <div className="bg-red-50 border-l-8 border-red-500 p-6 rounded-2xl mb-8 flex items-center shadow-lg">
             <span className="text-3xl mr-4">⚠️</span>
             <p className="text-red-700 font-bold">{error}</p>
           </div>
@@ -435,13 +424,13 @@ const App: React.FC = () => {
               onClick={() => setIsEditing(true)} 
               className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-900 transition-all flex items-center gap-2 shadow-lg"
             >
-              ✏️ 返回調整內容
+              ✏️ 修改內容
             </button>
             <button
               onClick={handlePrint}
               className="bg-emerald-600 text-white px-10 py-3 rounded-xl font-black hover:bg-emerald-700 shadow-2xl transition-all transform hover:scale-105 flex items-center gap-2"
             >
-              🖨️ 列印 / 儲存為 PDF
+              🖨️ 列印 / 儲存 PDF
             </button>
           </div>
           <ItineraryPreview plan={generatedPlan} type={tourType} />
@@ -449,7 +438,7 @@ const App: React.FC = () => {
       )}
 
       <div className="mt-24 text-slate-300 text-[10px] font-black tracking-widest uppercase no-print">
-        Powered by Google Gemini 3 Pro & Eagle Travel Logic
+        Powered by Google Gemini 3 Pro & Eagle Logic
       </div>
     </div>
   );
