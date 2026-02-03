@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types';
 import { generateTourPlan, generateImageForDay } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
@@ -29,15 +29,21 @@ const App: React.FC = () => {
       // 1. 生成行程文字
       const plan = await generateTourPlan(tourType, productName, extraContent);
       
-      // 2. 根據內容生成呼應的圖片 (預設生成每一天的第一張圖)
-      setImageProgress('正在為每天生成專屬景點圖片...');
-      const updatedDays = await Promise.all(plan.days.map(async (day, index) => {
+      // 2. 根據 AI 建議的張數生成圖片
+      setImageProgress('正在生成景點視覺圖 (多圖處理中)...');
+      const updatedDays = await Promise.all(plan.days.map(async (day) => {
         try {
-          const prompt = `${plan.mainTitle} 第${day.day}天: ${day.title}. ${day.description.substring(0, 100)}`;
-          const base64Image = await generateImageForDay(prompt);
+          const count = day.imageCount || 1;
+          const imagePromises = [];
+          for (let i = 0; i < count; i++) {
+            // 加入 Perspective 變數，讓多張圖有差異
+            const prompt = `${plan.mainTitle} 第${day.day}天: ${day.title}. Perspective ${i + 1} of this location. ${day.description.substring(0, 50)}`;
+            imagePromises.push(generateImageForDay(prompt));
+          }
+          const base64Images = await Promise.all(imagePromises);
           return {
             ...day,
-            customImages: [base64Image]
+            customImages: base64Images
           };
         } catch (e) {
           console.error(`Day ${day.day} image gen failed`, e);
@@ -53,6 +59,28 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
       setImageProgress('');
+    }
+  };
+
+  const regenerateDayImages = async (idx: number) => {
+    if (!generatedPlan) return;
+    const day = generatedPlan.days[idx];
+    const count = day.imageCount || 1;
+    
+    // 顯示載入狀態（暫時清空圖片顯示載入感）
+    updateDayField(idx, 'customImages', []);
+    
+    try {
+      const imagePromises = [];
+      for (let i = 0; i < count; i++) {
+        const prompt = `${generatedPlan.mainTitle} Day ${day.day}: ${day.title}. View angle ${i + 1}.`;
+        imagePromises.push(generateImageForDay(prompt));
+      }
+      const base64Images = await Promise.all(imagePromises);
+      updateDayField(idx, 'customImages', base64Images);
+    } catch (e) {
+      console.error("Regenerate failed", e);
+      alert("圖片生成失敗，請稍後再試。");
     }
   };
 
@@ -84,8 +112,9 @@ const App: React.FC = () => {
 
     Promise.all(readers).then(base64Images => {
       const existing = (generatedPlan?.days[index].customImages || []);
-      updateDayField(index, 'customImages', [...existing, ...base64Images]);
-      updateDayField(index, 'imageCount', existing.length + base64Images.length);
+      const combined = [...existing, ...base64Images];
+      updateDayField(index, 'customImages', combined);
+      updateDayField(index, 'imageCount', combined.length);
     });
   };
 
@@ -96,7 +125,7 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
               <h2 className="text-3xl font-black text-slate-800 tracking-tight">🛠️ 行程企劃微調</h2>
-              <p className="text-slate-500 mt-1">調整排版位置、圖片張數或上傳自有照片。Left/Right 將採單列直排。</p>
+              <p className="text-slate-500 mt-1">調整圖片數量後可點擊「重新生成」獲取對應數量的 AI 圖片。</p>
             </div>
             <div className="flex gap-4">
               <button onClick={reset} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition-all">重新開始</button>
@@ -140,6 +169,12 @@ const App: React.FC = () => {
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">🖼️ 圖片顯示數量：{day.imageCount || 1}</label>
+                        <button 
+                          onClick={() => regenerateDayImages(idx)}
+                          className="text-[9px] bg-blue-100 text-blue-700 px-2 py-1 rounded-md font-black hover:bg-blue-200"
+                        >
+                          ✨ 重新生成 AI 圖
+                        </button>
                       </div>
                       <input 
                         type="range" 
@@ -171,6 +206,7 @@ const App: React.FC = () => {
                                     onClick={() => {
                                       const filtered = day.customImages?.filter((_, imgIdx) => imgIdx !== i);
                                       updateDayField(idx, 'customImages', filtered);
+                                      updateDayField(idx, 'imageCount', (filtered?.length || 0) || 1);
                                     }}
                                     className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold shadow-sm"
                                   >✕</button>

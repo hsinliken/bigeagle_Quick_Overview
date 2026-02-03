@@ -116,15 +116,15 @@ export async function generateImageForDay(prompt: string): Promise<string> {
 
   const ai = new GoogleGenAI({ apiKey });
   try {
-    // 改進提示詞：強調禁止文字、強調攝影畫質
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [{ 
-          text: `Professional high-end travel photography of ${prompt}. 
-                 STRICTLY NO TEXT, NO LABELS, NO WATERMARKS. 
-                 Cinematic lighting, extreme detail, 8k resolution, National Geographic style. 
-                 Focus on the landmark architecture or natural beauty.` 
+          text: `Extremely high-quality professional travel photography of ${prompt}. 
+                 ABSULUTELY NO TEXT, NO CHARACTERS, NO LOGOS, NO SIGNS. 
+                 Pure landscape or architectural beauty. 
+                 Vivid colors, wide angle, cinematic lighting, 8k resolution, photorealistic. 
+                 National Geographic photography style.` 
         }]
       },
       config: {
@@ -142,7 +142,6 @@ export async function generateImageForDay(prompt: string): Promise<string> {
     throw new Error("No image part returned");
   } catch (error) {
     console.error("Image Gen Error:", error);
-    // 回退到清晰的 Picsum
     return `https://picsum.photos/seed/${encodeURIComponent(prompt.substring(0,15))}/800/450`;
   }
 }
