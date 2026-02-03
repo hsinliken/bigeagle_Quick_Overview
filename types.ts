@@ -1,0 +1,53 @@
+
+export enum TourType {
+  DOMESTIC = 'DOMESTIC',
+  INTERNATIONAL = 'INTERNATIONAL'
+}
+
+export enum InputMethod {
+  AUTO = 'AUTO',
+  TEXT = 'TEXT',
+  FILE = 'FILE'
+}
+
+export type ImagePosition = 'left' | 'right' | 'bottom';
+
+export interface TimelineItem {
+  time: string;
+  activity: string;
+}
+
+export interface Meals {
+  breakfast: string;
+  lunch: string;
+  dinner: string;
+}
+
+export interface DayPlan {
+  day: number;
+  title: string;
+  description: string;
+  timeline: TimelineItem[];
+  meals: Meals;
+  accommodation: string;
+  imageUrl: string; // Used as seed/keyword
+  imagePosition: ImagePosition;
+  imageCount: number;
+}
+
+export interface TourPlan {
+  mainTitle: string;
+  marketingSubtitle: string;
+  departureInfo: string;
+  highlights: string[];
+  days: DayPlan[];
+  costIncludes: string[];
+  costExcludes: string[];
+  precautions: string[];
+  suggestedItems: string[];
+  flightInfo?: {
+    departure: string;
+    return: string;
+  };
+  countryCity?: string;
+}
