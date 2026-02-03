@@ -67,14 +67,8 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // 嚴格遵循規範：從 process.env.API_KEY 獲取
-  const apiKey = process.env.API_KEY;
-  
-  if (!apiKey || apiKey === "undefined" || apiKey === "") {
-    throw new Error("API Key 缺失。在 Vercel 環境中，請點擊下方的『立即選取金鑰』按鈕來連結您的有效 API Key。");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
+  // 直接從環境變數獲取，不進行前端的手動 throw 檢查，交給 SDK 或後端過濾
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
@@ -97,9 +91,10 @@ export async function generateTourPlan(
     });
 
     const text = response.text;
-    if (!text) throw new Error("AI 返回內容為空");
+    if (!text) throw new Error("AI 返回內容為空，請確認商品名稱是否包含敏感詞彙。");
     
     const data = JSON.parse(text);
+    // 數據補全
     data.days = data.days.map((d: any) => ({
       ...d,
       imagePosition: d.imagePosition || 'right',
@@ -108,9 +103,11 @@ export async function generateTourPlan(
     
     return data as TourPlan;
   } catch (error: any) {
-    if (error.message?.includes("API key")) {
-      throw new Error("無效的 API Key。請確認您的 Google AI Studio 金鑰是否正確，並具有 Gemini 3 Pro 的存取權限。");
+    console.error("Gemini API Error:", error);
+    // 如果是 API Key 相關錯誤，拋出特定字串供 App.tsx 捕獲
+    if (error.message?.toLowerCase().includes("api key") || error.message?.includes("401") || error.message?.includes("403")) {
+      throw new Error("AUTH_ERROR: API 金鑰無效或尚未在 Vercel 設定。請確認 API_KEY 環境變數。");
     }
-    throw error;
+    throw new Error(error.message || "生成的過程中發生未知錯誤");
   }
 }

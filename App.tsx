@@ -24,14 +24,13 @@ const App: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true); // 預設為 true 允許進入，失敗才提醒
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true); 
   const [isAistudioAvailable, setIsAistudioAvailable] = useState<boolean>(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
 
   useEffect(() => {
-    // 檢查是否有 aistudio 橋接器（通常在 Google AI Studio 預覽環境）
     if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
       setIsAistudioAvailable(true);
       window.aistudio.hasSelectedApiKey().then(selected => {
@@ -39,8 +38,6 @@ const App: React.FC = () => {
       }).catch(() => setHasApiKey(false));
     } else {
       setIsAistudioAvailable(false);
-      // 在 Vercel 環境中，我們無法在前端輕易驗證 process.env.API_KEY 是否有效（因為它是伺服器端或編譯時注入）
-      // 所以預設允許使用者操作
       setHasApiKey(true);
     }
   }, []);
@@ -66,22 +63,20 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
+      // 呼叫 API
       const plan = await generateTourPlan(tourType, productName, extraContent);
       setGeneratedPlan(plan);
       setIsEditing(true); 
     } catch (err: any) {
-      const errMsg = err.message || '';
-      if (errMsg.includes("API Key") || errMsg.includes("401") || errMsg.includes("not found")) {
+      const errMsg = err.message || '未知錯誤';
+      console.error("Generation failed:", errMsg);
+
+      if (errMsg.includes("AUTH_ERROR") || errMsg.includes("API Key")) {
         setHasApiKey(false);
-        if (isAistudioAvailable) {
-          setError('API 金鑰效期已過或尚未選取，請點擊「選取金鑰」按鈕。');
-        } else {
-          setError('偵測不到有效的 API 金鑰。請確認已在 Vercel Settings > Environment Variables 設定 API_KEY 並重新部署。');
-        }
+        setError(`金鑰驗證失敗：${errMsg}。請確認 Vercel 設定中的 API_KEY 是否為正確的 Gemini API 金鑰（應為 AIza... 開頭）。`);
       } else {
-        setError(errMsg || '行程生成失敗，請稍後再試。');
+        setError(`產出失敗：${errMsg}`);
       }
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -122,7 +117,6 @@ const App: React.FC = () => {
     setGeneratedPlan({ ...generatedPlan, days: newDays });
   };
 
-  // 編輯模式
   if (generatedPlan && isEditing) {
     return (
       <div className="min-h-screen bg-slate-50 py-12 px-4 no-print font-sans">
@@ -200,7 +194,6 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center py-12 px-4 font-sans">
       <div className="w-full max-w-4xl no-print">
-        {/* Header Section */}
         <div className="text-center mb-12">
           <div className="inline-block bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold mb-4 tracking-widest uppercase shadow-lg shadow-blue-100">
             Eagle AI Itinerary Studio
@@ -209,27 +202,23 @@ const App: React.FC = () => {
           <p className="text-lg text-slate-500 font-medium">智能生成國內外專業團體行程，讓企劃更有效率。</p>
         </div>
 
-        {/* API Status Reminder (Only show if key is missing or error occurred) */}
         {!hasApiKey && (
-          <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 mb-8 flex flex-col md:flex-row items-center gap-6 shadow-sm">
+          <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 mb-8 flex flex-col md:flex-row items-center gap-6 shadow-sm border-l-8 border-l-amber-500">
             <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">🔑</div>
             <div className="flex-1 text-center md:text-left">
-              <h4 className="font-black text-amber-900 mb-1">需要設定 API 金鑰</h4>
+              <h4 className="font-black text-amber-900 mb-1">API 金鑰似乎有誤</h4>
               <p className="text-amber-700 text-sm">
-                {isAistudioAvailable 
-                  ? "目前環境需要您手動選取金鑰才能調用 Gemini 模型。" 
-                  : "請確保已在 Vercel 專案設定中加入 API_KEY 環境變數，否則無法生成行程。"}
+                請確認您在 Vercel <b>Settings &gt; Environment Variables</b> 設定的 <b>API_KEY</b> 是否正確，並已點擊 "Save" 且重新部署 (Redeploy)。
               </p>
             </div>
             {isAistudioAvailable && (
               <button onClick={handleSelectKey} className="bg-amber-600 text-white px-6 py-2 rounded-xl font-black text-sm hover:bg-amber-700 transition-all">
-                立即選取金鑰
+                重新選取金鑰
               </button>
             )}
           </div>
         )}
 
-        {/* Main Input Card */}
         <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 mb-8 border border-slate-100 relative overflow-hidden">
           <div className="flex flex-col md:flex-row gap-10">
             <div className="flex-1 space-y-8">
@@ -301,11 +290,14 @@ const App: React.FC = () => {
         </div>
 
         {error && (
-          <div className="bg-red-50 border-l-8 border-red-500 p-5 rounded-2xl mb-8 flex items-center shadow-lg animate-in fade-in duration-300">
+          <div className="bg-red-50 border-l-8 border-red-500 p-6 rounded-2xl mb-8 flex items-start shadow-lg animate-in fade-in duration-300">
             <span className="text-3xl mr-4">🛑</span>
             <div className="text-red-700">
-               <p className="font-black">發生錯誤</p>
-               <p className="text-sm font-medium">{error}</p>
+               <p className="font-black text-lg">發生錯誤</p>
+               <p className="text-sm font-medium leading-relaxed opacity-80">{error}</p>
+               <p className="mt-2 text-xs font-bold bg-white/50 p-2 rounded">
+                 提示：如果您確認設定了 API_KEY 但仍失敗，請檢查金鑰是否有開啟 Gemini API 權限，或是否為「付費帳戶」專用的金鑰。
+               </p>
             </div>
           </div>
         )}
