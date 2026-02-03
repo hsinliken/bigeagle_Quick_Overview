@@ -1,11 +1,11 @@
 
-import React, { useState, useTransition, useMemo } from 'react';
+import React, { useState, useTransition } from 'react';
 import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types';
 import { generateTourPlan, generateImageForDay } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
 
 /**
- * 模擬 Next.js 的 Page 組件
+ * Page Component
  * 採用 Dashboard 佈局：左側控制參數，右側顯示結果
  */
 const Page: React.FC = () => {
@@ -22,8 +22,11 @@ const Page: React.FC = () => {
   const [isPending, startTransition] = useTransition();
 
   const handleGenerate = () => {
+    // 檢查輸入
     if (!productName.trim()) {
-      setError('請輸入旅遊商品名稱');
+      setError('請輸入旅遊商品名稱，這是生成行程的必要資訊。');
+      // 自動捲動到頂部顯示錯誤
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -49,6 +52,7 @@ const Page: React.FC = () => {
             const base64Images = await Promise.all(imagePromises);
             return { ...day, customImages: base64Images };
           } catch (e) {
+            console.warn(`Day ${day.day} image gen failed`, e);
             return day;
           }
         }));
@@ -56,7 +60,8 @@ const Page: React.FC = () => {
         setGeneratedPlan({ ...plan, days: updatedDays });
         setIsEditing(false); // 生成後預設顯示預覽
       } catch (err: any) {
-        setError('生成失敗，請稍後再試。');
+        console.error("Generation error:", err);
+        setError(`生成失敗：${err.message || '請確認網路連線或 API Key 權限，稍後再試。'}`);
       } finally {
         setImageProgress('');
       }
@@ -69,7 +74,6 @@ const Page: React.FC = () => {
     const day = generatedPlan.days[dayIndex];
     const dayNumber = day.day;
     
-    // 設置特定天數的載入狀態
     setRegeneratingDays(prev => new Set(prev).add(dayNumber));
     
     try {
@@ -80,7 +84,6 @@ const Page: React.FC = () => {
       const imagePromises = [];
       for (let i = 0; i < count; i++) {
         const variations = ["scenic", "vibe", "detail", "atmosphere", "landscape", "architecture"];
-        // 隨機選取偏移量以獲得不同風格
         const randomVariation = variations[Math.floor(Math.random() * variations.length)];
         imagePromises.push(generateImageForDay(`${dayContext}, ${randomVariation}`));
       }
@@ -102,9 +105,16 @@ const Page: React.FC = () => {
   };
 
   const handlePrint = () => {
-    requestAnimationFrame(() => {
+    if (!generatedPlan) return;
+    // 確保處於預覽模式
+    if (isEditing) {
+      setIsEditing(false);
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    } else {
       window.print();
-    });
+    }
   };
 
   const handleDownloadHtml = () => {
@@ -165,6 +175,24 @@ const Page: React.FC = () => {
       </div>
 
       <div className="space-y-6">
+        {/* 錯誤顯示區塊 */}
+        {error && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl animate-in fade-in slide-in-from-top-1">
+            <div className="flex">
+              <div className="flex-shrink-0 text-red-400">⚠️</div>
+              <div className="ml-3">
+                <p className="text-[10px] font-black text-red-700 uppercase tracking-widest leading-tight">{error}</p>
+              </div>
+              <button onClick={() => setError(null)} className="ml-auto -mr-1 text-red-400 hover:text-red-500">
+                <span className="sr-only">關閉</span>
+                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
         <div>
           <label className="block text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest">行程類別</label>
           <div className="flex p-1 bg-slate-100 rounded-xl">
@@ -187,10 +215,13 @@ const Page: React.FC = () => {
         <div>
           <label className="block text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">商品名稱</label>
           <input 
-            className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 focus:bg-white focus:border-blue-500 outline-none transition-all font-bold text-slate-800 placeholder:text-slate-300"
+            className={`w-full px-4 py-3 rounded-xl bg-slate-50 border transition-all font-bold text-slate-800 placeholder:text-slate-300 outline-none ${error && !productName.trim() ? 'border-red-300 ring-2 ring-red-50 focus:border-red-500' : 'border-slate-100 focus:bg-white focus:border-blue-500'}`}
             placeholder="例如：日本關西賞楓五日..."
             value={productName}
-            onChange={e => setProductName(e.target.value)}
+            onChange={e => {
+              setProductName(e.target.value);
+              if (error) setError(null);
+            }}
           />
         </div>
 
@@ -209,11 +240,17 @@ const Page: React.FC = () => {
         <button 
           onClick={handleGenerate}
           disabled={isPending}
-          className={`w-full py-4 rounded-2xl text-white font-black text-lg transition-all shadow-xl active:scale-95 ${isPending ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-black shadow-slate-200'}`}
+          className={`w-full py-4 rounded-2xl text-white font-black text-lg transition-all shadow-xl active:scale-95 flex items-center justify-center ${isPending ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-black shadow-slate-200'}`}
         >
           {isPending ? (
             <div className="flex flex-col items-center">
-              <span className="animate-pulse text-base">正在構思內容...</span>
+              <span className="flex items-center gap-3">
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span className="text-base">正在構思內容...</span>
+              </span>
               <span className="text-[10px] font-normal opacity-60 mt-1">{imageProgress}</span>
             </div>
           ) : '✨ 生成行程簡表'}
@@ -221,7 +258,7 @@ const Page: React.FC = () => {
       </div>
 
       <div className="mt-auto pt-8 border-t border-slate-100">
-        <p className="text-[9px] text-slate-400 leading-relaxed font-medium">大鷹專屬 AI 行程小助手 V2.2<br/>基於 Next.js 15 & Gemini 2.5 系列開發</p>
+        <p className="text-[9px] text-slate-400 leading-relaxed font-medium">大鷹專屬 AI 行程小助手 V2.3<br/>基於 Next.js 15 & Gemini 2.5 系列開發</p>
       </div>
     </div>
   );
@@ -246,7 +283,7 @@ const Page: React.FC = () => {
                     {isEditing ? '👀 預覽模式' : '🛠️ 編輯模式'}
                   </button>
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">已就緒</p>
                   </div>
                </div>

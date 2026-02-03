@@ -67,8 +67,7 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  const apiKey = process.env.API_KEY;
-  const ai = new GoogleGenAI({ apiKey: apiKey as string });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
@@ -105,7 +104,7 @@ export async function generateTourPlan(
     return result as TourPlan;
   } catch (error: any) {
     console.error("Gemini Generation Error:", error);
-    throw error;
+    throw new Error(error.message || "AI 生成行程時發生錯誤");
   }
 }
 
@@ -114,10 +113,8 @@ export async function generateTourPlan(
  * @param context 包含當天標題、描述、以及旅遊類型的組合文字
  */
 export async function generateImageForDay(context: string): Promise<string> {
-  const apiKey = process.env.API_KEY;
-  const ai = new GoogleGenAI({ apiKey: apiKey as string });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // 強化提示詞：強調細節與真實景觀感
   const refinedPrompt = `A high-end travel marketing photograph showing: ${context}. 
   Cinematic lighting, professional 4k photography, clear weather, no people or text, high aesthetic quality, capturing the specific vibe of the location described.`;
 
