@@ -12,8 +12,8 @@ declare global {
   }
 
   interface Window {
-    // Fixed: Removed readonly to match the underlying global declaration modifier across multiple definition merges.
-    aistudio: AIStudio;
+    // FIX: Add optional modifier to match potential existing declarations and fix modifier conflict.
+    aistudio?: AIStudio;
   }
 }
 
@@ -27,12 +27,10 @@ const Page: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [imageProgress, setImageProgress] = useState<string>('');
   const [regeneratingDays, setRegeneratingDays] = useState<Set<number>>(new Set());
-  // 預設為 null 表示正在檢查，false 表示需要選取金鑰
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   
   const [isPending, startTransition] = useTransition();
 
-  // 初始化時檢查 API Key 狀態
   useEffect(() => {
     const checkKey = async () => {
       if (window.aistudio) {
@@ -43,8 +41,6 @@ const Page: React.FC = () => {
           setHasApiKey(false);
         }
       } else {
-        // 如果不在 AI Studio 環境（如 Vercel），檢查是否存在環境變數
-        // 若不存在，仍先允許進入，由 generate 階段的 error handler 處理
         setHasApiKey(true);
       }
     };
@@ -59,8 +55,6 @@ const Page: React.FC = () => {
         console.error("Failed to open key selector:", e);
       }
     }
-    // 根據規範，觸發後直接假設成功並進入 App
-    // 即使失敗，後續 API 報錯也會將 hasApiKey 設回 false
     setHasApiKey(true);
   };
 
@@ -102,7 +96,6 @@ const Page: React.FC = () => {
       } catch (err: any) {
         console.error("Generation error:", err);
         const errMsg = err.message || "";
-        // 依照規範，若實體未找到或缺少金鑰，重置選取狀態
         if (errMsg.includes("Requested entity was not found") || errMsg.includes("API Key must be set") || errMsg.includes("API_KEY is not defined")) {
           setError("API 金鑰失效或未正確設定。");
           setHasApiKey(false);
@@ -170,7 +163,6 @@ const Page: React.FC = () => {
     link.click();
   };
 
-  // 載入狀態
   if (hasApiKey === null) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -179,7 +171,6 @@ const Page: React.FC = () => {
     );
   }
 
-  // 金鑰選取閘門
   if (hasApiKey === false) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
@@ -224,7 +215,7 @@ const Page: React.FC = () => {
                 <p className="text-[10px] font-black text-red-700 uppercase tracking-widest">{error}</p>
               </div>
               <button onClick={() => setError(null)} className="text-red-400 hover:text-red-500">
-                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
               </button>
             </div>
           </div>
@@ -238,6 +229,22 @@ const Page: React.FC = () => {
           </div>
         </div>
 
+        {/* 重新加入的輸入模式選擇區塊 */}
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest">輸入模式</label>
+          <div className="grid grid-cols-3 gap-2">
+            {[InputMethod.AUTO, InputMethod.TEXT, InputMethod.FILE].map(m => (
+              <button 
+                key={m} 
+                onClick={() => setInputMethod(m)} 
+                className={`py-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${inputMethod === m ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-slate-50 text-slate-400 hover:border-slate-100'}`}
+              >
+                <span className="text-[10px] font-black uppercase tracking-tighter">{m}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div>
           <label className="block text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">商品名稱</label>
           <input 
@@ -247,6 +254,27 @@ const Page: React.FC = () => {
             onChange={e => setProductName(e.target.value)}
           />
         </div>
+
+        {/* 只有在 TEXT 模式下才顯示額外填寫區 */}
+        {inputMethod === InputMethod.TEXT && (
+          <div className="animate-in fade-in slide-in-from-top-2 duration-500">
+            <label className="block text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">詳細要求與限制</label>
+            <textarea 
+              className="w-full h-40 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 focus:bg-white focus:border-blue-500 outline-none transition-all text-sm font-medium resize-none leading-relaxed"
+              placeholder="請輸入特定的航班時間、必選景點、餐食限制或其他行程細節..."
+              value={extraContent}
+              onChange={e => setExtraContent(e.target.value)}
+            />
+          </div>
+        )}
+
+        {inputMethod === InputMethod.FILE && (
+          <div className="p-6 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-slate-50/50">
+             <div className="text-2xl mb-2">📄</div>
+             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">即將推出：PDF/圖片解析</p>
+             <p className="text-[9px] text-slate-300 font-medium mt-1">目前請先使用「文字輸入」模式</p>
+          </div>
+        )}
 
         <button 
           onClick={handleGenerate}
@@ -275,7 +303,7 @@ const Page: React.FC = () => {
           <div className="h-full flex flex-col items-center justify-center text-center p-10">
             <div className="w-24 h-24 bg-white rounded-[2rem] shadow-2xl flex items-center justify-center text-5xl mb-8 animate-bounce">🗺️</div>
             <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tighter">準備好開始企劃了嗎？</h2>
-            <p className="text-slate-500 max-w-sm font-medium leading-relaxed">在左側輸入商品名稱，AI 將自動為您產出專業的行程簡表。</p>
+            <p className="text-slate-500 max-w-sm font-medium leading-relaxed">選擇輸入模式並提供商品資訊，AI 將為您即時產出專業行程。</p>
           </div>
         ) : (
           <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-6">
