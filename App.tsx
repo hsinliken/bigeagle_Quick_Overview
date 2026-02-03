@@ -17,6 +17,7 @@ const Page: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageProgress, setImageProgress] = useState<string>('');
+  const [regeneratingDays, setRegeneratingDays] = useState<Set<number>>(new Set());
   
   const [isPending, startTransition] = useTransition();
 
@@ -62,8 +63,45 @@ const Page: React.FC = () => {
     });
   };
 
+  const handleRegenerateDayImages = async (dayIndex: number) => {
+    if (!generatedPlan) return;
+    
+    const day = generatedPlan.days[dayIndex];
+    const dayNumber = day.day;
+    
+    // 設置特定天數的載入狀態
+    setRegeneratingDays(prev => new Set(prev).add(dayNumber));
+    
+    try {
+      const count = day.imageCount || 1;
+      const typeLabel = tourType === TourType.DOMESTIC ? "Taiwan" : "International";
+      const dayContext = `${typeLabel} travel, Day ${day.day}: ${day.title}. ${day.description.slice(0, 150)}`;
+
+      const imagePromises = [];
+      for (let i = 0; i < count; i++) {
+        const variations = ["scenic", "vibe", "detail", "atmosphere", "landscape", "architecture"];
+        // 隨機選取偏移量以獲得不同風格
+        const randomVariation = variations[Math.floor(Math.random() * variations.length)];
+        imagePromises.push(generateImageForDay(`${dayContext}, ${randomVariation}`));
+      }
+      
+      const base64Images = await Promise.all(imagePromises);
+      
+      const newDays = [...generatedPlan.days];
+      newDays[dayIndex] = { ...day, customImages: base64Images };
+      setGeneratedPlan({ ...generatedPlan, days: newDays });
+    } catch (err) {
+      console.error("Single day image regeneration failed:", err);
+    } finally {
+      setRegeneratingDays(prev => {
+        const next = new Set(prev);
+        next.delete(dayNumber);
+        return next;
+      });
+    }
+  };
+
   const handlePrint = () => {
-    // 延遲執行確保 DOM 狀態穩定
     requestAnimationFrame(() => {
       window.print();
     });
@@ -119,7 +157,7 @@ const Page: React.FC = () => {
   const renderSidebar = () => (
     <div className="w-full lg:w-96 bg-white border-r border-slate-200 h-screen overflow-y-auto no-print flex flex-col p-8 space-y-8 sticky top-0 z-20 shadow-2xl lg:shadow-none">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200 font-black">E</div>
+        <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200 font-black text-lg tracking-tighter">EA</div>
         <div>
           <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none">Eagle AI</h1>
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Next-Gen Engine</p>
@@ -183,7 +221,7 @@ const Page: React.FC = () => {
       </div>
 
       <div className="mt-auto pt-8 border-t border-slate-100">
-        <p className="text-[9px] text-slate-400 leading-relaxed font-medium">大鷹專屬 AI 行程小助手 V2.1<br/>基於 Next.js 15 & Gemini 2.5 系列開發</p>
+        <p className="text-[9px] text-slate-400 leading-relaxed font-medium">大鷹專屬 AI 行程小助手 V2.2<br/>基於 Next.js 15 & Gemini 2.5 系列開發</p>
       </div>
     </div>
   );
@@ -220,37 +258,63 @@ const Page: React.FC = () => {
 
             {isEditing ? (
               <div className="space-y-6 animate-in fade-in duration-500">
-                {generatedPlan.days.map((day, idx) => (
-                  <div key={idx} className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 transition-all hover:shadow-xl group">
-                    <div className="flex flex-col lg:flex-row gap-8">
-                       <div className="flex-1 space-y-6">
-                          <div className="flex items-center gap-6">
-                             <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-xl font-black shadow-xl">D{day.day}</div>
-                             <input className="flex-1 text-2xl font-black border-b-2 border-slate-100 focus:border-blue-500 outline-none py-2 px-1 transition-all" value={day.title} onChange={e => updateDayField(idx, 'title', e.target.value)}/>
-                          </div>
-                          <textarea className="w-full h-32 p-6 rounded-3xl bg-slate-50 border-none text-base text-slate-600 focus:ring-2 focus:ring-blue-100 outline-none resize-none font-medium leading-relaxed" value={day.description} onChange={e => updateDayField(idx, 'description', e.target.value)}/>
-                       </div>
-                       <div className="lg:w-72 space-y-4 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">排版佈局</label>
-                          <div className="flex bg-slate-200 p-1 rounded-xl">
-                             {(['left', 'right', 'bottom'] as ImagePosition[]).map(pos => (
-                               <button key={pos} onClick={() => updateDayField(idx, 'imagePosition', pos)} className={`flex-1 py-1.5 rounded-lg text-[9px] font-black transition-all ${day.imagePosition === pos ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>{pos.toUpperCase()}</button>
-                             ))}
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">圖片數量: {day.imageCount}</label>
-                            <input type="range" min="1" max="4" className="w-full accent-blue-600" value={day.imageCount} onChange={e => updateDayField(idx, 'imageCount', parseInt(e.target.value))}/>
-                          </div>
-                          <div className="pt-2 border-t border-slate-200">
-                             <p className="text-[10px] font-bold text-slate-400 mb-2">預覽內容</p>
-                             <div className="flex gap-1 flex-wrap">
-                                {day.customImages?.map((img, i) => <img key={i} src={img} className="w-8 h-8 rounded-md object-cover"/>)}
-                             </div>
-                          </div>
-                       </div>
+                {generatedPlan.days.map((day, idx) => {
+                  const isDayRegenerating = regeneratingDays.has(day.day);
+                  return (
+                    <div key={idx} className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 transition-all hover:shadow-xl group">
+                      <div className="flex flex-col lg:flex-row gap-8">
+                         <div className="flex-1 space-y-6">
+                            <div className="flex items-center gap-6">
+                               <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-xl font-black shadow-xl">D{day.day}</div>
+                               <input className="flex-1 text-2xl font-black border-b-2 border-slate-100 focus:border-blue-500 outline-none py-2 px-1 transition-all" value={day.title} onChange={e => updateDayField(idx, 'title', e.target.value)}/>
+                            </div>
+                            <textarea className="w-full h-32 p-6 rounded-3xl bg-slate-50 border-none text-base text-slate-600 focus:ring-2 focus:ring-blue-100 outline-none resize-none font-medium leading-relaxed" value={day.description} onChange={e => updateDayField(idx, 'description', e.target.value)}/>
+                         </div>
+                         <div className="lg:w-72 space-y-4 bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">排版佈局</label>
+                            <div className="flex bg-slate-200 p-1 rounded-xl">
+                               {(['left', 'right', 'bottom'] as ImagePosition[]).map(pos => (
+                                 <button key={pos} onClick={() => updateDayField(idx, 'imagePosition', pos)} className={`flex-1 py-1.5 rounded-lg text-[9px] font-black transition-all ${day.imagePosition === pos ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>{pos.toUpperCase()}</button>
+                               ))}
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest flex justify-between">
+                                <span>圖片數量: {day.imageCount}</span>
+                              </label>
+                              <input type="range" min="1" max="4" className="w-full accent-blue-600 mb-2" value={day.imageCount} onChange={e => updateDayField(idx, 'imageCount', parseInt(e.target.value))}/>
+                            </div>
+                            
+                            {/* 重新生成圖片按鈕 */}
+                            <button 
+                              onClick={() => handleRegenerateDayImages(idx)}
+                              disabled={isDayRegenerating}
+                              className={`w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isDayRegenerating ? 'bg-slate-200 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-600 hover:text-white'}`}
+                            >
+                              {isDayRegenerating ? (
+                                <span className="flex items-center justify-center gap-2">
+                                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  產生中...
+                                </span>
+                              ) : '🔄 重新生成圖片'}
+                            </button>
+
+                            <div className="pt-2 border-t border-slate-200 mt-2">
+                               <p className="text-[10px] font-bold text-slate-400 mb-2">預覽內容</p>
+                               <div className="flex gap-1 flex-wrap">
+                                  {day.customImages?.map((img, i) => (
+                                    <img key={i} src={img} className={`w-8 h-8 rounded-md object-cover border border-slate-200 ${isDayRegenerating ? 'opacity-30' : ''}`}/>
+                                  ))}
+                                  {(!day.customImages || day.customImages.length === 0) && <div className="text-[9px] text-slate-300 italic py-2">尚未生成圖片</div>}
+                               </div>
+                            </div>
+                         </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div id="itinerary-preview-container" className="animate-in fade-in duration-1000">
