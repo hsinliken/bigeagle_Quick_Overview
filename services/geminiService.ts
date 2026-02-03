@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { TourType, TourPlan } from "../types";
 import { DOMESTIC_SYSTEM_PROMPT, INTERNATIONAL_SYSTEM_PROMPT } from "../constants";
@@ -66,9 +67,13 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // 直接初始化，SDK 會在內部處理金鑰
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-  
+  // CRITICAL: 在呼叫時才初始化，確保 process.env.API_KEY 是最新的
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API 金鑰尚未連結。請先點擊選取金鑰按鈕。");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
@@ -77,7 +82,7 @@ export async function generateTourPlan(
     類型: ${type === TourType.DOMESTIC ? '國內團體旅遊' : '國外團體旅遊'}
     ${extraContent ? `參考資料或額外要求: ${extraContent}` : ''}
     
-    請確保內容符合專業旅遊企劃書水準。
+    請確保內容符合專業旅遊企劃書水準，語氣專業且吸引人。
   `;
 
   try {
@@ -92,10 +97,10 @@ export async function generateTourPlan(
     });
 
     const text = response.text;
-    if (!text) throw new Error("AI 未能產生內容，請換個名稱試試看。");
+    if (!text) throw new Error("AI 未能產生內容");
     
     const result = JSON.parse(text);
-    // 確保圖片位置與數量有預設值
+    // 補強默認值
     result.days = result.days.map((d: any) => ({
       ...d,
       imagePosition: d.imagePosition || 'right',
@@ -104,11 +109,8 @@ export async function generateTourPlan(
     
     return result as TourPlan;
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    // 重新封裝錯誤訊息
-    if (error.message?.includes("API Key") || error.message?.includes("key not found")) {
-      throw new Error("金鑰無效或未被正確讀取。如果您在 Vercel 部署，請確認環境變數名稱為 API_KEY。");
-    }
-    throw error;
+    console.error("Gemini API Internal Error:", error);
+    // 拋出包含具體原因的錯誤
+    throw new Error(error.message || "生成的過程中發生未知錯誤");
   }
 }

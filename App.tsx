@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+
+import React, { useState, useRef, useEffect } from 'react';
 import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types';
 import { generateTourPlan } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
@@ -13,8 +14,46 @@ const App: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // 優先從環境變數檢查金鑰是否存在
+  const [hasApiKey, setHasApiKey] = useState<boolean>(() => {
+    return !!process.env.API_KEY && process.env.API_KEY !== 'undefined';
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+
+  // 如果環境變數不存在，才去檢查 AI Studio 選取狀態
+  useEffect(() => {
+    if (!hasApiKey) {
+      const checkKey = async () => {
+        const aistudio = (window as any).aistudio;
+        if (aistudio) {
+          try {
+            const selected = await aistudio.hasSelectedApiKey();
+            if (selected) setHasApiKey(true);
+          } catch (e) {
+            console.debug("AI Studio key check skipped or failed.");
+          }
+        }
+      };
+      checkKey();
+    }
+  }, [hasApiKey]);
+
+  const handleOpenSelectKey = async () => {
+    const aistudio = (window as any).aistudio;
+    if (aistudio) {
+      try {
+        await aistudio.openSelectKey();
+        setHasApiKey(true);
+        setError(null);
+      } catch (e) {
+        setError("無法開啟選取視窗，請確認瀏覽器未封裝彈出視窗。");
+      }
+    } else {
+      setError("當前環境不支援線上選取金鑰，請手動確認 Vercel 的 API_KEY 設定。");
+    }
+  };
 
   const handleGenerate = async () => {
     if (!productName.trim()) {
@@ -24,13 +63,21 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
+    
     try {
       const plan = await generateTourPlan(tourType, productName, extraContent);
       setGeneratedPlan(plan);
       setIsEditing(true); 
     } catch (err: any) {
-      setError(err.message || '生成失敗，請稍後再試。');
       console.error("Generation Error:", err);
+      const msg = err.message || '';
+      
+      if (msg.includes("API Key") || msg.includes("401") || msg.includes("not found")) {
+        setHasApiKey(false);
+        setError("API 金鑰驗證失敗。請檢查 Vercel 設定中的金鑰是否正確，或嘗試重新連結。");
+      } else {
+        setError(msg || '產出行程時發生錯誤。');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -59,6 +106,28 @@ const App: React.FC = () => {
     newDays[index] = { ...newDays[index], [field]: value };
     setGeneratedPlan({ ...generatedPlan, days: newDays });
   };
+
+  // 如果兩者都沒有金鑰，顯示引導畫面
+  if (!hasApiKey) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-lg border border-slate-100">
+          <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-4xl mx-auto mb-6">🔑</div>
+          <h2 className="text-3xl font-black text-slate-900 mb-4">啟動 AI 企劃助手</h2>
+          <p className="text-slate-500 mb-8 leading-relaxed">
+            系統偵測不到有效的 API 金鑰。如果你已經在 Vercel 設定好環境變數，請重新整理頁面；或點擊下方按鈕進行手動授權。
+          </p>
+          <button 
+            onClick={handleOpenSelectKey}
+            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-xl hover:bg-blue-700 transition-all transform hover:scale-[1.02] active:scale-95"
+          >
+            連結 API 金鑰
+          </button>
+          {error && <p className="mt-4 text-red-500 text-sm font-bold">{error}</p>}
+        </div>
+      </div>
+    );
+  }
 
   if (generatedPlan && isEditing) {
     return (
@@ -213,9 +282,6 @@ const App: React.FC = () => {
             <div className="text-red-700">
                <p className="font-black text-lg">發生錯誤</p>
                <p className="text-sm font-medium leading-relaxed">{error}</p>
-               <p className="mt-2 text-xs opacity-70 italic font-bold">
-                 如果是 Vercel 環境，請確認您已在 Environment Variables 設定 API_KEY，並完成 Redeploy。
-               </p>
             </div>
           </div>
         )}
