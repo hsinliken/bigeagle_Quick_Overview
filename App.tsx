@@ -4,7 +4,7 @@ import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types
 import { generateTourPlan, generateImageForDay } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
 
-// 宣告 window 上的 aistudio 擴充功能，使用具名接口並與環境預期的 AIStudio 類型一致
+// 宣告 window 上的 aistudio 擴充功能
 declare global {
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
@@ -12,7 +12,8 @@ declare global {
   }
 
   interface Window {
-    readonly aistudio: AIStudio;
+    // Fixed: Removed readonly to match the underlying global declaration modifier across multiple definition merges.
+    aistudio: AIStudio;
   }
 }
 
@@ -26,6 +27,7 @@ const Page: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [imageProgress, setImageProgress] = useState<string>('');
   const [regeneratingDays, setRegeneratingDays] = useState<Set<number>>(new Set());
+  // 預設為 null 表示正在檢查，false 表示需要選取金鑰
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   
   const [isPending, startTransition] = useTransition();
@@ -34,11 +36,16 @@ const Page: React.FC = () => {
   useEffect(() => {
     const checkKey = async () => {
       if (window.aistudio) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(selected);
+        try {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          setHasApiKey(selected);
+        } catch (e) {
+          setHasApiKey(false);
+        }
       } else {
-        // 如果不在 AI Studio 環境，假設 process.env.API_KEY 已存在
-        setHasApiKey(!!process.env.API_KEY);
+        // 如果不在 AI Studio 環境（如 Vercel），檢查是否存在環境變數
+        // 若不存在，仍先允許進入，由 generate 階段的 error handler 處理
+        setHasApiKey(true);
       }
     };
     checkKey();
@@ -46,15 +53,20 @@ const Page: React.FC = () => {
 
   const handleOpenKeySelector = async () => {
     if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      // 根據規範，觸發後直接假設成功並進入 App
-      setHasApiKey(true);
+      try {
+        await window.aistudio.openSelectKey();
+      } catch (e) {
+        console.error("Failed to open key selector:", e);
+      }
     }
+    // 根據規範，觸發後直接假設成功並進入 App
+    // 即使失敗，後續 API 報錯也會將 hasApiKey 設回 false
+    setHasApiKey(true);
   };
 
   const handleGenerate = () => {
     if (!productName.trim()) {
-      setError('請輸入旅遊商品名稱，這是生成行程的必要資訊。');
+      setError('請輸入旅遊商品名稱。');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -89,12 +101,13 @@ const Page: React.FC = () => {
         setIsEditing(false);
       } catch (err: any) {
         console.error("Generation error:", err);
-        // 如果錯誤包含特定訊息，引導重新選取金鑰
-        if (err.message?.includes("Requested entity was not found") || err.message?.includes("API Key must be set")) {
-          setError("API 金鑰失效或未設定，請重新授權。");
+        const errMsg = err.message || "";
+        // 依照規範，若實體未找到或缺少金鑰，重置選取狀態
+        if (errMsg.includes("Requested entity was not found") || errMsg.includes("API Key must be set") || errMsg.includes("API_KEY is not defined")) {
+          setError("API 金鑰失效或未正確設定。");
           setHasApiKey(false);
         } else {
-          setError(`生成失敗：${err.message || '請確認網路連線，稍後再試。'}`);
+          setError(`生成失敗：${errMsg || '請確認網路連線，稍後再試。'}`);
         }
       } finally {
         setImageProgress('');
@@ -122,7 +135,9 @@ const Page: React.FC = () => {
       newDays[dayIndex] = { ...day, customImages: base64Images };
       setGeneratedPlan({ ...generatedPlan, days: newDays });
     } catch (err: any) {
-       if (err.message?.includes("Requested entity was not found")) setHasApiKey(false);
+       if (err.message?.includes("Requested entity was not found")) {
+         setHasApiKey(false);
+       }
     } finally {
       setRegeneratingDays(prev => {
         const next = new Set(prev);
@@ -155,20 +170,29 @@ const Page: React.FC = () => {
     link.click();
   };
 
-  // 如果金鑰尚未選取，顯示授權畫面
+  // 載入狀態
+  if (hasApiKey === null) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full"></div>
+      </div>
+    );
+  }
+
+  // 金鑰選取閘門
   if (hasApiKey === false) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-24 h-24 bg-blue-600 rounded-[2.5rem] flex items-center justify-center text-4xl mb-8 shadow-2xl shadow-blue-500/20 animate-pulse">🔑</div>
-        <h1 className="text-3xl font-black text-white mb-4 tracking-tighter">需要 API 金鑰授權</h1>
+        <div className="w-24 h-24 bg-blue-600 rounded-[2.5rem] flex items-center justify-center text-4xl mb-8 shadow-2xl shadow-blue-500/20">🔑</div>
+        <h1 className="text-3xl font-black text-white mb-4 tracking-tighter">API 金鑰授權</h1>
         <p className="text-slate-400 max-w-md mb-8 leading-relaxed font-medium">
-          為了啟動 Eagle AI 行程引擎，請選擇一個已啟動計費功能的 API 金鑰。這將確保您能獲得最高品質的生成結果。
+          系統偵測到未選取 API 金鑰或金鑰已失效。請點擊下方按鈕選取一個有效的 Google AI Studio 付費專案金鑰。
         </p>
         <button 
           onClick={handleOpenKeySelector}
           className="bg-white text-slate-900 px-10 py-4 rounded-2xl font-black text-lg hover:bg-blue-50 transition-all shadow-xl active:scale-95 mb-6"
         >
-          選取 API 金鑰
+          選取 / 重新驗證金鑰
         </button>
         <a 
           href="https://ai.google.dev/gemini-api/docs/billing" 
@@ -176,7 +200,7 @@ const Page: React.FC = () => {
           rel="noopener noreferrer"
           className="text-blue-400 text-xs font-bold hover:underline"
         >
-          查看計費文件說明
+          查看 Google API 計費文件說明
         </a>
       </div>
     );
