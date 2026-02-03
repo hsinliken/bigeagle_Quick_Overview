@@ -52,31 +52,24 @@ const App: React.FC = () => {
   };
 
   const handlePrint = () => {
-    // window.print() 是標準 Web API。
-    // 如果在沙盒預覽環境中無反應，是因為環境限制，部署後將正常運作。
+    // 觸發原生列印。若在 AI 預覽環境無反應，請在獨立分頁開啟網址即可正常運作。
     window.print();
   };
 
   const updateDayField = (index: number, field: keyof DayPlan, value: any) => {
     if (!generatedPlan) return;
-    setGeneratedPlan(prev => {
-      if (!prev) return null;
-      const newDays = [...prev.days];
-      newDays[index] = { ...newDays[index], [field]: value };
-      return { ...prev, days: newDays };
-    });
+    const newDays = [...generatedPlan.days];
+    newDays[index] = { ...newDays[index], [field]: value };
+    setGeneratedPlan({ ...generatedPlan, days: newDays });
   };
 
   const updateTimeline = (dayIndex: number, timeIndex: number, field: 'time' | 'activity', value: string) => {
     if (!generatedPlan) return;
-    setGeneratedPlan(prev => {
-      if (!prev) return null;
-      const newDays = [...prev.days];
-      const newTimeline = [...newDays[dayIndex].timeline];
-      newTimeline[timeIndex] = { ...newTimeline[timeIndex], [field]: value };
-      newDays[dayIndex].timeline = newTimeline;
-      return { ...prev, days: newDays };
-    });
+    const newDays = [...generatedPlan.days];
+    const newTimeline = [...newDays[dayIndex].timeline];
+    newTimeline[timeIndex] = { ...newTimeline[timeIndex], [field]: value };
+    newDays[dayIndex].timeline = newTimeline;
+    setGeneratedPlan({ ...generatedPlan, days: newDays });
   };
 
   if (generatedPlan && isEditing) {
@@ -89,7 +82,7 @@ const App: React.FC = () => {
               <p className="text-slate-500 mt-1">請在出版前調整您的文字內容與版面配置</p>
             </div>
             <div className="flex gap-4">
-              <button onClick={reset} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition-colors">捨棄</button>
+              <button onClick={reset} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300">捨棄</button>
               <button 
                 onClick={() => setIsEditing(false)} 
                 className="px-8 py-3 bg-blue-600 text-white rounded-xl font-black shadow-xl hover:bg-blue-700 transition-all transform hover:scale-105"
@@ -122,7 +115,7 @@ const App: React.FC = () => {
             </div>
 
             {generatedPlan.days.map((day, idx) => (
-              <div key={idx} className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 space-y-6 animate-fadeIn">
+              <div key={idx} className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 space-y-6">
                 <div className="flex flex-col md:flex-row gap-8">
                   <div className="flex-1 space-y-6">
                     <div className="flex items-center gap-4">
@@ -172,7 +165,7 @@ const App: React.FC = () => {
                     </div>
 
                     <div className="space-y-3">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">圖片數量 ({day.imageCount})</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">圖片數量 ({day.imageCount} 張)</label>
                       <div className="flex items-center gap-4">
                         <input 
                           type="range" min="1" max="3" step="1"
@@ -184,7 +177,7 @@ const App: React.FC = () => {
                           {day.imageCount}
                         </span>
                       </div>
-                      <p className="text-[10px] text-slate-400 text-center">調整拉桿以改變每日顯示的圖片張數</p>
+                      <p className="text-[10px] text-slate-400 text-center">拖動滑桿即可調整圖片顯示張數</p>
                     </div>
 
                     <div className="space-y-3">
