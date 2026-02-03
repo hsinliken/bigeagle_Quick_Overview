@@ -67,10 +67,11 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // 嚴格遵循規範：在呼叫前才獲取金鑰並實例化，以獲取最新注入的金鑰
+  // 嚴格遵循規範：從 process.env.API_KEY 獲取
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key 未正確注入。請確認已設定環境變數或透過選取器選取。");
+  
+  if (!apiKey || apiKey === "undefined" || apiKey === "") {
+    throw new Error("API Key 缺失。在 Vercel 環境中，請點擊下方的『立即選取金鑰』按鈕來連結您的有效 API Key。");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -84,28 +85,32 @@ export async function generateTourPlan(
     請確保生成的行程細節專業且誘人。對於 imagePosition，請預設為 'right'。對於 imageCount，請預設為 1。
   `;
 
-  // 使用更高階的 gemini-3-pro-preview 處理複雜企劃任務
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: prompt,
-    config: {
-      systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: tourPlanSchema,
-    },
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: prompt,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: tourPlanSchema,
+      },
+    });
 
-  const text = response.text;
-  if (!text) throw new Error("AI 無法生成行程內容，請確認您的 API 金鑰是否具備足夠配額。");
-  
-  const data = JSON.parse(text);
-  
-  // 注入預設配置確保 UI 相容
-  data.days = data.days.map((d: any) => ({
-    ...d,
-    imagePosition: d.imagePosition || 'right',
-    imageCount: d.imageCount || 1
-  }));
-  
-  return data as TourPlan;
+    const text = response.text;
+    if (!text) throw new Error("AI 返回內容為空");
+    
+    const data = JSON.parse(text);
+    data.days = data.days.map((d: any) => ({
+      ...d,
+      imagePosition: d.imagePosition || 'right',
+      imageCount: d.imageCount || 1
+    }));
+    
+    return data as TourPlan;
+  } catch (error: any) {
+    if (error.message?.includes("API key")) {
+      throw new Error("無效的 API Key。請確認您的 Google AI Studio 金鑰是否正確，並具有 Gemini 3 Pro 的存取權限。");
+    }
+    throw error;
+  }
 }

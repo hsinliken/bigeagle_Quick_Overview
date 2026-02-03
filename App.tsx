@@ -11,7 +11,8 @@ declare global {
     openSelectKey: () => Promise<void>;
   }
   interface Window {
-    aistudio: AIStudio;
+    // FIX: Make aistudio optional to match existing environment definitions and fix modifier mismatch error
+    aistudio?: AIStudio;
   }
 }
 
