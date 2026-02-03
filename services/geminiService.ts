@@ -67,11 +67,8 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // CRITICAL: 每次呼叫時才獲取 API Key，確保抓取到最新選取的金鑰
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API key is missing. 請連結 API 金鑰後重試。");
-  }
+  if (!apiKey) throw new Error("API key is missing.");
 
   const ai = new GoogleGenAI({ apiKey });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
@@ -100,7 +97,6 @@ export async function generateTourPlan(
     if (!text) throw new Error("AI 未能產出內容。");
     
     const result = JSON.parse(text);
-    // 補齊預設值
     result.days = result.days.map((d: any) => ({
       ...d,
       imagePosition: d.imagePosition || 'right',
@@ -110,7 +106,43 @@ export async function generateTourPlan(
     return result as TourPlan;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    // 拋出原始錯誤供 App.tsx 處理金鑰狀態
     throw error;
+  }
+}
+
+export async function generateImageForDay(prompt: string): Promise<string> {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API key is missing for image generation.");
+
+  const ai = new GoogleGenAI({ apiKey });
+  try {
+    // 改進提示詞：強調禁止文字、強調攝影畫質
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [{ 
+          text: `Professional high-end travel photography of ${prompt}. 
+                 STRICTLY NO TEXT, NO LABELS, NO WATERMARKS. 
+                 Cinematic lighting, extreme detail, 8k resolution, National Geographic style. 
+                 Focus on the landmark architecture or natural beauty.` 
+        }]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: "16:9"
+        }
+      }
+    });
+
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      }
+    }
+    throw new Error("No image part returned");
+  } catch (error) {
+    console.error("Image Gen Error:", error);
+    // 回退到清晰的 Picsum
+    return `https://picsum.photos/seed/${encodeURIComponent(prompt.substring(0,15))}/800/450`;
   }
 }

@@ -1,7 +1,7 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types';
-import { generateTourPlan } from './services/geminiService';
+import { generateTourPlan, generateImageForDay } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
 
 const App: React.FC = () => {
@@ -13,30 +13,7 @@ const App: React.FC = () => {
   const [generatedPlan, setGeneratedPlan] = useState<TourPlan | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  const [hasKey, setHasKey] = useState<boolean>(true);
-
-  useEffect(() => {
-    const checkKey = async () => {
-      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-        const isSelected = await window.aistudio.hasSelectedApiKey();
-        setHasKey(isSelected);
-      } else {
-        setHasKey(!!process.env.API_KEY);
-      }
-    };
-    checkKey();
-  }, []);
-
-  const handleLinkKey = async () => {
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-      await window.aistudio.openSelectKey();
-      setHasKey(true);
-      setError(null);
-    } else {
-      setError("當前環境不支援線上選取金鑰，請手動確認 Vercel 的 API_KEY 設定。");
-    }
-  };
+  const [imageProgress, setImageProgress] = useState<string>('');
 
   const handleGenerate = async () => {
     if (!productName.trim()) {
@@ -46,22 +23,36 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
+    setImageProgress('正在規劃行程內容...');
     
     try {
+      // 1. 生成行程文字
       const plan = await generateTourPlan(tourType, productName, extraContent);
-      setGeneratedPlan(plan);
+      
+      // 2. 根據內容生成呼應的圖片 (預設生成每一天的第一張圖)
+      setImageProgress('正在為每天生成專屬景點圖片...');
+      const updatedDays = await Promise.all(plan.days.map(async (day, index) => {
+        try {
+          const prompt = `${plan.mainTitle} 第${day.day}天: ${day.title}. ${day.description.substring(0, 100)}`;
+          const base64Image = await generateImageForDay(prompt);
+          return {
+            ...day,
+            customImages: [base64Image]
+          };
+        } catch (e) {
+          console.error(`Day ${day.day} image gen failed`, e);
+          return day;
+        }
+      }));
+
+      setGeneratedPlan({ ...plan, days: updatedDays });
       setIsEditing(true); 
     } catch (err: any) {
       console.error("Generation Error:", err);
-      const msg = err.message || '';
-      if (msg.includes("API key is missing") || msg.includes("401")) {
-        setHasKey(false);
-        setError("系統偵測不到有效的 API 金鑰。");
-      } else {
-        setError(msg || '產出行程時發生錯誤。');
-      }
+      setError(err.message || '產出行程時發生錯誤，請確認 API Key 設定是否正確。');
     } finally {
       setIsLoading(false);
+      setImageProgress('');
     }
   };
 
@@ -92,24 +83,11 @@ const App: React.FC = () => {
     });
 
     Promise.all(readers).then(base64Images => {
-      updateDayField(index, 'customImages', base64Images);
-      updateDayField(index, 'imageCount', base64Images.length);
+      const existing = (generatedPlan?.days[index].customImages || []);
+      updateDayField(index, 'customImages', [...existing, ...base64Images]);
+      updateDayField(index, 'imageCount', existing.length + base64Images.length);
     });
   };
-
-  if (!hasKey) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
-        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-lg w-full">
-          <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-8 shadow-inner">🔑</div>
-          <h2 className="text-3xl font-black text-slate-900 mb-4">啟動 AI 企劃助手</h2>
-          <p className="text-slate-500 mb-10 leading-relaxed font-medium">系統偵測不到有效的 API 金鑰。點擊按鈕進行授權。</p>
-          <button onClick={handleLinkKey} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all transform hover:scale-[1.02] mb-6">連結 API 金鑰</button>
-          {error && <p className="mt-8 text-red-500 font-bold bg-red-50 p-4 rounded-xl text-sm">{error}</p>}
-        </div>
-      </div>
-    );
-  }
 
   if (generatedPlan && isEditing) {
     return (
@@ -118,7 +96,7 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
               <h2 className="text-3xl font-black text-slate-800 tracking-tight">🛠️ 行程企劃微調</h2>
-              <p className="text-slate-500 mt-1">調整排版位置、圖片張數或上傳自有照片</p>
+              <p className="text-slate-500 mt-1">調整排版位置、圖片張數或上傳自有照片。Left/Right 將採單列直排。</p>
             </div>
             <div className="flex gap-4">
               <button onClick={reset} className="px-6 py-2 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition-all">重新開始</button>
@@ -146,10 +124,10 @@ const App: React.FC = () => {
                       <span className="bg-blue-600 text-white w-10 h-10 flex items-center justify-center rounded-xl font-black shadow-lg">D{day.day}</span>
                       <input className="flex-1 text-2xl font-black p-2 border-b-2 border-slate-100 focus:border-blue-500 outline-none" value={day.title} onChange={e => updateDayField(idx, 'title', e.target.value)}/>
                     </div>
-                    <textarea className="w-full h-32 p-4 rounded-xl bg-slate-50 border border-slate-100 text-slate-600 resize-none focus:ring-2 focus:ring-blue-100 outline-none" value={day.description} onChange={e => updateDayField(idx, 'description', e.target.value)}/>
+                    <textarea className="w-full h-40 p-4 rounded-xl bg-slate-50 border border-slate-100 text-slate-600 resize-none focus:ring-2 focus:ring-blue-100 outline-none" value={day.description} onChange={e => updateDayField(idx, 'description', e.target.value)}/>
                   </div>
                   
-                  <div className="md:w-80 space-y-5 bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                  <div className="md:w-80 space-y-5 bg-slate-50 p-6 rounded-3xl border border-slate-100 flex-shrink-0">
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">📸 圖片排版位置</label>
                       <div className="flex gap-1 bg-slate-200 p-1 rounded-xl">
@@ -161,7 +139,7 @@ const App: React.FC = () => {
                     
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">🖼️ 圖片數量：{day.imageCount || 1}</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">🖼️ 圖片顯示數量：{day.imageCount || 1}</label>
                       </div>
                       <input 
                         type="range" 
@@ -175,29 +153,32 @@ const App: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">自定義照片</label>
+                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">上傳/更換圖片</label>
                        <div className="flex flex-col gap-2">
                           <input 
                             type="file" 
                             multiple 
                             accept="image/*"
-                            className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer"
+                            className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer w-full"
                             onChange={(e) => handleDayImageUpload(idx, e.target.files)}
                           />
-                          {day.customImages && (
-                            <div className="flex gap-1 overflow-x-auto pb-2">
+                          {day.customImages && day.customImages.length > 0 && (
+                            <div className="flex gap-2 flex-wrap py-2 border-t border-slate-200 mt-2">
                               {day.customImages.map((img, i) => (
-                                <img key={i} src={img} className="w-8 h-8 rounded object-cover border border-white shadow-sm" alt="Preview"/>
+                                <div key={i} className="relative group">
+                                  <img src={img} className="w-12 h-12 rounded object-cover border border-white shadow-sm" alt="Preview"/>
+                                  <button 
+                                    onClick={() => {
+                                      const filtered = day.customImages?.filter((_, imgIdx) => imgIdx !== i);
+                                      updateDayField(idx, 'customImages', filtered);
+                                    }}
+                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold shadow-sm"
+                                  >✕</button>
+                                </div>
                               ))}
-                              <button onClick={() => updateDayField(idx, 'customImages', undefined)} className="text-[10px] text-red-500 font-bold hover:underline">清除</button>
                             </div>
                           )}
                        </div>
-                    </div>
-
-                    <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">圖片關鍵字 (AI Seed)</label>
-                       <input className="w-full p-2 text-xs border rounded-lg bg-white font-mono" value={day.imageUrl} onChange={e => updateDayField(idx, 'imageUrl', e.target.value)}/>
                     </div>
                   </div>
                 </div>
@@ -215,7 +196,7 @@ const App: React.FC = () => {
         <div className="text-center mb-12">
           <div className="inline-block bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold mb-4 tracking-widest uppercase shadow-lg shadow-blue-100">Eagle AI Studio</div>
           <h1 className="text-5xl font-black text-slate-900 mb-4 tracking-tight">大鷹-行程簡表AI小助手</h1>
-          <p className="text-lg text-slate-500 font-medium">智能生成專業國內外旅遊企劃行程。</p>
+          <p className="text-lg text-slate-500 font-medium">專屬您的行程企劃專家，自動生成精美簡報。</p>
         </div>
 
         <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 mb-8 border border-slate-100">
@@ -271,7 +252,12 @@ const App: React.FC = () => {
                 disabled={isLoading}
                 className={`w-full py-5 rounded-2xl text-white font-black text-xl shadow-xl transition-all ${isLoading ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-95 shadow-blue-200'}`}
               >
-                {isLoading ? '生成中，請稍候...' : '立即生成行程計劃'}
+                {isLoading ? (
+                  <div className="flex flex-col items-center">
+                    <span>處理中...</span>
+                    <span className="text-[10px] font-normal opacity-80 mt-1">{imageProgress}</span>
+                  </div>
+                ) : '立即生成行程計劃'}
               </button>
             </div>
           </div>
