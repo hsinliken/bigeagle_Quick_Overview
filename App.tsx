@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types';
 import { generateTourPlan } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
@@ -14,8 +14,36 @@ const App: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // 金鑰狀態管理
+  const [hasKey, setHasKey] = useState<boolean>(true); // 預設為 true，待檢查
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+
+  // 初始化檢查金鑰
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+        const isSelected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(isSelected);
+      } else {
+        // 如果不在支援環境，檢查是否有環境變數
+        setHasKey(!!process.env.API_KEY);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleLinkKey = async () => {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
+      // 根據規範：觸發後即假設成功
+      setHasKey(true);
+      setError(null);
+    } else {
+      setError("當前環境不支援線上選取金鑰，請手動確認 Vercel 的 API_KEY 設定。");
+    }
+  };
 
   const handleGenerate = async () => {
     if (!productName.trim()) {
@@ -31,24 +59,18 @@ const App: React.FC = () => {
       setGeneratedPlan(plan);
       setIsEditing(true); 
     } catch (err: any) {
-      console.error("Generation Error Details:", err);
+      console.error("Generation Error:", err);
       const msg = err.message || '';
       
-      if (msg.includes("API key is missing") || msg.includes("401") || msg.includes("not found")) {
-        setError("⚠️ AI 金鑰讀取失敗。請確認 Vercel 中的 API_KEY 是否已正確設定且已重新部署。");
+      // 如果是金鑰錯誤，強制重新選取
+      if (msg.includes("API key is missing") || msg.includes("401")) {
+        setHasKey(false);
+        setError("系統偵測不到有效的 API 金鑰。如果您已經在 Vercel 設定好環境變數，請重新整理頁面；或點擊下方按鈕進行手動授權。");
       } else {
         setError(msg || '產出行程時發生錯誤，請稍後再試。');
       }
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUploadedFileName(file.name);
-      setExtraContent(`[已偵測到文件：${file.name}，將以此為基礎進行企劃]`);
     }
   };
 
@@ -68,7 +90,34 @@ const App: React.FC = () => {
     setGeneratedPlan({ ...generatedPlan, days: newDays });
   };
 
-  // 如果正在編輯內容
+  // 1. 金鑰授權介面
+  if (!hasKey) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-lg w-full">
+          <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-8 shadow-inner">🔑</div>
+          <h2 className="text-3xl font-black text-slate-900 mb-4">啟動 AI 企劃助手</h2>
+          <p className="text-slate-500 mb-10 leading-relaxed font-medium">
+            系統偵測不到有效的 API 金鑰。<br/>
+            如果您已經在 Vercel 設定好環境變數，請重新整理頁面；或點擊下方按鈕進行手動授權。
+          </p>
+          <button 
+            onClick={handleLinkKey}
+            className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all transform hover:scale-[1.02] active:scale-95 shadow-blue-200 mb-6"
+          >
+            連結 API 金鑰
+          </button>
+          <div className="text-xs text-slate-400 space-y-2">
+            <p>當前環境不支援線上選取金鑰時，請手動確認 Vercel 的 API_KEY 設定。</p>
+            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-500">了解 API 金鑰計費須知</a>
+          </div>
+          {error && <p className="mt-8 text-red-500 font-bold bg-red-50 p-4 rounded-xl text-sm">{error}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  // 2. 行程微調介面
   if (generatedPlan && isEditing) {
     return (
       <div className="min-h-screen bg-slate-50 py-12 px-4 no-print font-sans">
@@ -134,6 +183,7 @@ const App: React.FC = () => {
     );
   }
 
+  // 3. 主填寫介面
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center py-12 px-4 font-sans">
       <div className="w-full max-w-4xl no-print">
@@ -187,7 +237,13 @@ const App: React.FC = () => {
 
               {inputMethod === InputMethod.FILE && (
                 <div onClick={() => fileInputRef.current?.click()} className="group border-2 border-dashed border-slate-200 rounded-3xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all">
-                   <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+                   <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => {
+                     const file = e.target.files?.[0];
+                     if(file) {
+                       setUploadedFileName(file.name);
+                       setExtraContent(`[已偵測到文件：${file.name}，將以此為基礎進行企劃]`);
+                     }
+                   }} />
                    {uploadedFileName ? (
                      <p className="font-bold text-blue-600">✅ {uploadedFileName}</p>
                    ) : (
