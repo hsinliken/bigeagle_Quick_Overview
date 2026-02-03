@@ -67,9 +67,13 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // 直接使用環境變數初始化 SDK
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-  
+  // CRITICAL: 在呼叫時才初始化，確保能抓取到最新的 process.env.API_KEY
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API key is missing. 請點擊按鈕連結金鑰。");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
@@ -83,7 +87,7 @@ export async function generateTourPlan(
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         systemInstruction,
@@ -105,10 +109,9 @@ export async function generateTourPlan(
     return result as TourPlan;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    // 統一錯誤訊息處理
-    if (error.message?.includes("API Key") || error.message?.includes("401")) {
-      throw new Error("API 金鑰驗證失敗。請檢查 Vercel 設定中的 API_KEY 是否正確。");
+    if (error.message?.includes("API key") || error.message?.includes("401")) {
+      throw new Error("API 金鑰驗證失敗。請重新連結金鑰。");
     }
-    throw new Error(error.message || "生成的過程中發生未知錯誤");
+    throw new Error(error.message || "產出行程時發生未知錯誤");
   }
 }
