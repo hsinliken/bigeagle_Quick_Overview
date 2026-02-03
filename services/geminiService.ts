@@ -67,19 +67,17 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API key is missing.");
-
-  const ai = new GoogleGenAI({ apiKey });
+  // 每次調用都重新實例化 GoogleGenAI，確保 API_KEY 正確注入
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
     請根據以下資訊產出行程：
     商品名稱: ${productName}
     類型: ${type === TourType.DOMESTIC ? '國內團體旅遊' : '國外團體旅遊'}
-    ${extraContent ? `參考資料或額外要求: ${extraContent}` : ''}
+    ${extraContent ? `額外要求: ${extraContent}` : ''}
     
-    請確保內容符合專業旅遊企劃書水準，語氣專業且吸引人。
+    請確保內容專業且吸引人。在 days 陣列中，請為每個景點隨機分配 1~3 的 imageCount，並指定 imagePosition。
   `;
 
   try {
@@ -111,20 +109,13 @@ export async function generateTourPlan(
 }
 
 export async function generateImageForDay(prompt: string): Promise<string> {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API key is missing for image generation.");
-
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [{ 
-          text: `Extremely high-quality professional travel photography of ${prompt}. 
-                 ABSULUTELY NO TEXT, NO CHARACTERS, NO LOGOS, NO SIGNS. 
-                 Pure landscape or architectural beauty. 
-                 Vivid colors, wide angle, cinematic lighting, 8k resolution, photorealistic. 
-                 National Geographic photography style.` 
+          text: `A professional 4K travel photograph of ${prompt}. Epic landscape, vivid cinematic colors, high detail, no text.` 
         }]
       },
       config: {
@@ -139,9 +130,10 @@ export async function generateImageForDay(prompt: string): Promise<string> {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image part returned");
+    throw new Error("No image data in response");
   } catch (error) {
     console.error("Image Gen Error:", error);
-    return `https://picsum.photos/seed/${encodeURIComponent(prompt.substring(0,15))}/800/450`;
+    // 備援：如果 AI 生成失敗，使用 Picsum
+    return `https://picsum.photos/seed/${encodeURIComponent(prompt.slice(-5))}/1200/675`;
   }
 }
