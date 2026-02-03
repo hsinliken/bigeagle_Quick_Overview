@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { TourType, InputMethod, TourPlan, DayPlan, ImagePosition } from './types';
 import { generateTourPlan } from './services/geminiService';
 import ItineraryPreview from './components/ItineraryPreview';
@@ -14,48 +14,8 @@ const App: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // 檢查金鑰是否存在（環境變數或 AI Studio 已選取）
-  const [hasApiKey, setHasApiKey] = useState<boolean>(() => {
-    return !!process.env.API_KEY && process.env.API_KEY !== 'undefined' && process.env.API_KEY !== '';
-  });
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
-
-  // 定期檢查金鑰狀態，防止 race condition
-  useEffect(() => {
-    if (!hasApiKey) {
-      const checkStatus = async () => {
-        const aistudio = (window as any).aistudio;
-        if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
-          try {
-            const selected = await aistudio.hasSelectedApiKey();
-            if (selected) setHasApiKey(true);
-          } catch (e) {
-            console.debug("Checking API key selection status...");
-          }
-        }
-      };
-      const timer = setInterval(checkStatus, 2000);
-      return () => clearInterval(timer);
-    }
-  }, [hasApiKey]);
-
-  const handleOpenSelectKey = async () => {
-    const aistudio = (window as any).aistudio;
-    if (aistudio && typeof aistudio.openSelectKey === 'function') {
-      try {
-        await aistudio.openSelectKey();
-        // 根據規範，觸發後即假設成功以進入主介面
-        setHasApiKey(true);
-        setError(null);
-      } catch (e) {
-        setError("無法開啟選取視窗，請確認瀏覽器未封鎖彈出視窗。");
-      }
-    } else {
-      setError("當前環境不支援自動金鑰選取，請手動確認 API_KEY 是否已正確注入。");
-    }
-  };
 
   const handleGenerate = async () => {
     if (!productName.trim()) {
@@ -71,15 +31,13 @@ const App: React.FC = () => {
       setGeneratedPlan(plan);
       setIsEditing(true); 
     } catch (err: any) {
-      console.error("Generation Error:", err);
+      console.error("Generation Error Details:", err);
       const msg = err.message || '';
       
-      // 如果 API 報錯是因為金鑰問題，則重置狀態
       if (msg.includes("API key is missing") || msg.includes("401") || msg.includes("not found")) {
-        setHasApiKey(false);
-        setError("API 金鑰驗證失敗。請點擊下方的「連結 API 金鑰」重新授權。");
+        setError("⚠️ AI 金鑰讀取失敗。請確認 Vercel 中的 API_KEY 是否已正確設定且已重新部署。");
       } else {
-        setError(msg || '產出行程時發生錯誤。');
+        setError(msg || '產出行程時發生錯誤，請稍後再試。');
       }
     } finally {
       setIsLoading(false);
@@ -110,32 +68,7 @@ const App: React.FC = () => {
     setGeneratedPlan({ ...generatedPlan, days: newDays });
   };
 
-  // 如果沒有金鑰，顯示引導畫面
-  if (!hasApiKey) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
-        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-lg border border-slate-100">
-          <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-4xl mx-auto mb-6">🔑</div>
-          <h2 className="text-3xl font-black text-slate-900 mb-4">啟動 AI 企劃助手</h2>
-          <p className="text-slate-500 mb-8 leading-relaxed font-medium">
-            為了提供穩定的 AI 生成服務，請連結您的 Google Gemini API 金鑰。<br/>
-            建議選擇一個已啟用計費功能的專案。
-          </p>
-          <button 
-            onClick={handleOpenSelectKey}
-            className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all transform hover:scale-[1.02] active:scale-95 shadow-blue-200"
-          >
-            連結 API 金鑰
-          </button>
-          <p className="mt-6 text-xs text-slate-400">
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-500 transition-colors">了解金鑰設定與計費細節</a>
-          </p>
-          {error && <p className="mt-6 text-red-500 text-sm font-bold bg-red-50 p-3 rounded-xl">{error}</p>}
-        </div>
-      </div>
-    );
-  }
-
+  // 如果正在編輯內容
   if (generatedPlan && isEditing) {
     return (
       <div className="min-h-screen bg-slate-50 py-12 px-4 no-print font-sans">
@@ -286,8 +219,8 @@ const App: React.FC = () => {
         {error && (
           <div className="bg-red-50 border-l-8 border-red-500 p-6 rounded-2xl mb-8 flex items-start shadow-lg">
             <span className="text-3xl mr-4">⚠️</span>
-            <div className="text-red-700">
-               <p className="font-black text-lg">發生錯誤</p>
+            <div className="text-red-700 flex-1">
+               <p className="font-black text-lg">操作失敗</p>
                <p className="text-sm font-medium leading-relaxed">{error}</p>
             </div>
           </div>

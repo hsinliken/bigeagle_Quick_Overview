@@ -67,13 +67,10 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // CRITICAL: 在呼叫時才初始化，確保能抓取到最新的 process.env.API_KEY
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API key is missing. 請點擊按鈕連結金鑰。");
-  }
-
+  // 直接引用 API_KEY，不進行預檢，讓 SDK 處理錯誤
+  const apiKey = process.env.API_KEY || '';
   const ai = new GoogleGenAI({ apiKey });
+  
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
@@ -97,7 +94,7 @@ export async function generateTourPlan(
     });
 
     const text = response.text;
-    if (!text) throw new Error("AI 未能產生內容");
+    if (!text) throw new Error("AI 未能產生內容，請重試。");
     
     const result = JSON.parse(text);
     result.days = result.days.map((d: any) => ({
@@ -109,9 +106,7 @@ export async function generateTourPlan(
     return result as TourPlan;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    if (error.message?.includes("API key") || error.message?.includes("401")) {
-      throw new Error("API 金鑰驗證失敗。請重新連結金鑰。");
-    }
-    throw new Error(error.message || "產出行程時發生未知錯誤");
+    // 向外層拋出統一的錯誤訊息
+    throw error;
   }
 }
