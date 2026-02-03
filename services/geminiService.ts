@@ -67,6 +67,7 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
+  // 必須在函式內部初始化，以獲得最新的 API Key
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
@@ -77,7 +78,7 @@ export async function generateTourPlan(
     ${extraContent ? `要求細節: ${extraContent}` : ''}
     
     請確保內容專業且吸引人。在 days 陣列中，請為每個景點隨機分配 1~3 的 imageCount，並指定 imagePosition。
-    描述部分 (description) 請寫得具備視覺感，以便後續生成對應景點的圖片。
+    描述部分 (description) 請寫得具備視覺感，以文字勾勒氛圍。
   `;
 
   try {
@@ -104,19 +105,15 @@ export async function generateTourPlan(
     return result as TourPlan;
   } catch (error: any) {
     console.error("Gemini Generation Error:", error);
-    throw new Error(error.message || "AI 生成行程時發生錯誤");
+    throw error;
   }
 }
 
-/**
- * 根據當天行程細節生成對應圖片
- * @param context 包含當天標題、描述、以及旅遊類型的組合文字
- */
 export async function generateImageForDay(context: string): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const refinedPrompt = `A high-end travel marketing photograph showing: ${context}. 
-  Cinematic lighting, professional 4k photography, clear weather, no people or text, high aesthetic quality, capturing the specific vibe of the location described.`;
+  Cinematic lighting, professional 4k photography, clear weather, no people or text, high aesthetic quality.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -138,7 +135,7 @@ export async function generateImageForDay(context: string): Promise<string> {
     }
     throw new Error("No image data");
   } catch (error) {
-    console.warn("AI Image gen failed, using fallback:", error);
+    console.warn("AI Image gen failed:", error);
     return `https://picsum.photos/seed/${Math.random()}/1200/675`;
   }
 }
