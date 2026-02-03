@@ -39,9 +39,9 @@ const tourPlanSchema = {
             required: ["breakfast", "lunch", "dinner"]
           },
           accommodation: { type: Type.STRING },
-          imageUrl: { type: Type.STRING, description: "Keyword for image search" },
-          imagePosition: { type: Type.STRING, enum: ["left", "right", "bottom"], description: "Default to 'right'" },
-          imageCount: { type: Type.NUMBER, description: "Number of images (1-3)" }
+          imageUrl: { type: Type.STRING },
+          imagePosition: { type: Type.STRING, enum: ["left", "right", "bottom"] },
+          imageCount: { type: Type.NUMBER }
         },
         required: ["day", "title", "description", "timeline", "meals", "accommodation", "imageUrl"]
       }
@@ -67,16 +67,19 @@ export async function generateTourPlan(
   productName: string,
   extraContent?: string
 ): Promise<TourPlan> {
-  // 直接從環境變數獲取，不進行前端的手動 throw 檢查，交給 SDK 或後端過濾
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  
+  if (!apiKey || apiKey === 'undefined' || apiKey === '') {
+    throw new Error("AUTH_ERROR: 瀏覽器環境中找不到 API 金鑰。請使用選取金鑰功能。");
+  }
+
+  const ai = new GoogleGenAI({ apiKey: apiKey });
   const systemInstruction = type === TourType.DOMESTIC ? DOMESTIC_SYSTEM_PROMPT : INTERNATIONAL_SYSTEM_PROMPT;
   
   const prompt = `
     商品名稱: ${productName}
     類型: ${type === TourType.DOMESTIC ? '國內團體旅遊' : '國外團體旅遊'}
     ${extraContent ? `參考資料: ${extraContent}` : '請根據商品名稱自動生成完整行程內容。'}
-    
-    請確保生成的行程細節專業且誘人。對於 imagePosition，請預設為 'right'。對於 imageCount，請預設為 1。
   `;
 
   try {
@@ -91,23 +94,14 @@ export async function generateTourPlan(
     });
 
     const text = response.text;
-    if (!text) throw new Error("AI 返回內容為空，請確認商品名稱是否包含敏感詞彙。");
+    if (!text) throw new Error("AI 返回內容為空");
     
-    const data = JSON.parse(text);
-    // 數據補全
-    data.days = data.days.map((d: any) => ({
-      ...d,
-      imagePosition: d.imagePosition || 'right',
-      imageCount: d.imageCount || 1
-    }));
-    
-    return data as TourPlan;
+    return JSON.parse(text) as TourPlan;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    // 如果是 API Key 相關錯誤，拋出特定字串供 App.tsx 捕獲
-    if (error.message?.toLowerCase().includes("api key") || error.message?.includes("401") || error.message?.includes("403")) {
-      throw new Error("AUTH_ERROR: API 金鑰無效或尚未在 Vercel 設定。請確認 API_KEY 環境變數。");
+    if (error.message?.includes("API Key")) {
+      throw new Error("AUTH_ERROR: API 金鑰無效。");
     }
-    throw new Error(error.message || "生成的過程中發生未知錯誤");
+    throw error;
   }
 }
